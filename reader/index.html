@@ -78,6 +78,18 @@
           <div class="glass-panel screen-error-card">
             <h2 id="errorScreenTitle">Reader Error</h2>
             <p class="info" id="errorScreenBody"></p>
+            <div class="row" style="margin-top: 10px; margin-bottom: 10px;">
+              <button class="stone-btn" data-action="toggle-sidebar">Open Settings</button>
+            </div>
+            <section id="errorPackCard" hidden>
+              <div class="info">Load a StoryPack URL to recover.</div>
+              <input class="text-input" id="errorPackUrlInput" type="text" placeholder="https://.../api/stories/<id>/pack" />
+              <div class="row">
+                <button class="stone-btn" data-action="apply-pack-url-inline">Load Pack URL</button>
+                <button class="stone-btn" data-action="clear-pack-url-inline">Clear URL</button>
+              </div>
+              <div class="info" id="errorPackStatus"></div>
+            </section>
           </div>
         </section>
       </main>

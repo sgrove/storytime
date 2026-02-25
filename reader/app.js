@@ -42,6 +42,9 @@ const dom = {
   packConfigCard: document.getElementById('packConfigCard'),
   packUrlInput: document.getElementById('packUrlInput'),
   packConfigStatus: document.getElementById('packConfigStatus'),
+  errorPackCard: document.getElementById('errorPackCard'),
+  errorPackUrlInput: document.getElementById('errorPackUrlInput'),
+  errorPackStatus: document.getElementById('errorPackStatus'),
   voiceVolume: document.getElementById('voiceVolume'),
   musicVolume: document.getElementById('musicVolume'),
   errorScreen: document.getElementById('errorScreen'),
@@ -318,6 +321,7 @@ function setErrorScreen(message, detail) {
   dom.errorScreen.hidden = false;
   dom.errorScreenTitle.textContent = message;
   dom.errorScreenBody.textContent = detail;
+  syncPackConfigVisibility();
 }
 
 /**
@@ -328,6 +332,36 @@ function clearErrorScreen() {
   dom.errorScreen.hidden = true;
   dom.errorScreenTitle.textContent = '';
   dom.errorScreenBody.textContent = '';
+  syncPackConfigVisibility();
+}
+
+/**
+ * @returns {boolean}
+ */
+function canOverridePackSource() {
+  if (state.story.tag === 'error') return true;
+  if (state.runtime.tag !== 'ready') return false;
+  return state.runtime.config.allowPackOverride;
+}
+
+/**
+ * @param {string} value
+ * @returns {void}
+ */
+function setPackStatus(value) {
+  const next = text(value);
+  dom.packConfigStatus.textContent = next;
+  dom.errorPackStatus.textContent = next;
+}
+
+/**
+ * @param {string} value
+ * @returns {void}
+ */
+function setPackInputs(value) {
+  const next = text(value);
+  dom.packUrlInput.value = next;
+  dom.errorPackUrlInput.value = next;
 }
 
 /**
@@ -335,7 +369,8 @@ function clearErrorScreen() {
  */
 function hidePackConfig() {
   dom.packConfigCard.hidden = true;
-  dom.packConfigStatus.textContent = '';
+  dom.errorPackCard.hidden = true;
+  setPackStatus('');
 }
 
 /**
@@ -343,14 +378,16 @@ function hidePackConfig() {
  * @returns {void}
  */
 function showPackConfig(options = {}) {
-  dom.packConfigCard.hidden = false;
+  const visible = canOverridePackSource();
+  dom.packConfigCard.hidden = !visible;
+  dom.errorPackCard.hidden = !visible || dom.errorScreen.hidden;
 
   if (options.prefill != null) {
-    dom.packUrlInput.value = text(options.prefill);
+    setPackInputs(options.prefill);
   }
 
   if (options.status != null) {
-    dom.packConfigStatus.textContent = text(options.status);
+    setPackStatus(options.status);
   }
 }
 
@@ -358,19 +395,15 @@ function showPackConfig(options = {}) {
  * @returns {void}
  */
 function syncPackConfigVisibility() {
-  if (state.runtime.tag !== 'ready') {
+  if (!canOverridePackSource()) {
     hidePackConfig();
     return;
   }
 
-  if (!state.runtime.config.allowPackOverride) {
-    hidePackConfig();
-    return;
-  }
-
+  const configuredPackUrl = state.runtime.tag === 'ready' ? state.runtime.config.packUrl : '';
   showPackConfig({
-    prefill: state.runtime.config.packUrl,
-    status: state.runtime.config.packUrl
+    prefill: configuredPackUrl,
+    status: configuredPackUrl
       ? `Using configured pack URL.`
       : 'No pack URL configured yet.'
   });
@@ -649,11 +682,13 @@ function renderMeta() {
   let runtimeClass = 'info';
 
   if (state.runtime.tag === 'ready') {
-    runtimeMessages.push(
-      state.runtime.config.allowPackOverride
-        ? 'Story source override: enabled (?pack=...)'
-        : 'Story source override: locked for this deployment'
-    );
+    if (state.runtime.config.allowPackOverride) {
+      runtimeMessages.push('Story source override: enabled (?pack=...)');
+    } else if (state.story.tag === 'error') {
+      runtimeMessages.push('Story source override: emergency mode enabled while load error is active');
+    } else {
+      runtimeMessages.push('Story source override: locked for this deployment');
+    }
   }
 
   if (state.collab.error) {
@@ -1630,24 +1665,26 @@ function initUiEvents() {
       return;
     }
 
-    if (action === 'apply-pack-url') {
-      if (state.runtime.tag !== 'ready' || !state.runtime.config.allowPackOverride) return;
+    if (action === 'apply-pack-url' || action === 'apply-pack-url-inline') {
+      if (!canOverridePackSource()) return;
 
-      const nextPackUrl = text(dom.packUrlInput.value).trim();
+      const nextPackUrl = text(
+        action === 'apply-pack-url-inline' ? dom.errorPackUrlInput.value : dom.packUrlInput.value
+      ).trim();
 
       if (!nextPackUrl) {
-        dom.packConfigStatus.textContent = 'Enter a StoryPack URL first.';
+        setPackStatus('Enter a StoryPack URL first.');
         return;
       }
 
-      dom.packConfigStatus.textContent = 'Loading StoryPack URL...';
+      setPackStatus('Loading StoryPack URL...');
       reloadWithPackQuery(nextPackUrl);
       return;
     }
 
-    if (action === 'clear-pack-url') {
-      if (state.runtime.tag !== 'ready' || !state.runtime.config.allowPackOverride) return;
-      dom.packConfigStatus.textContent = 'Clearing URL override...';
+    if (action === 'clear-pack-url' || action === 'clear-pack-url-inline') {
+      if (!canOverridePackSource()) return;
+      setPackStatus('Clearing URL override...');
       reloadWithPackQuery(null);
       return;
     }
@@ -1818,6 +1855,16 @@ function initUiEvents() {
       setPageIndex(state.nav.pageIndex + 1, { reason: 'manual' });
     }
   }, { passive: true });
+
+  const syncPackInputValue = (source, destination) => {
+    if (!source || !destination) return;
+    source.addEventListener('input', () => {
+      destination.value = source.value;
+    });
+  };
+
+  syncPackInputValue(dom.packUrlInput, dom.errorPackUrlInput);
+  syncPackInputValue(dom.errorPackUrlInput, dom.packUrlInput);
 }
 
 /**
@@ -1842,12 +1889,10 @@ async function boot() {
     if (!packUrl) {
       state.story = { tag: 'error', error: 'missing_story_config' };
       setErrorScreen('Story configuration is incomplete.', 'No StoryPack URL could be resolved from runtime config.');
-      if (runtimeConfig.allowPackOverride) {
-        showPackConfig({
-          prefill: '',
-          status: 'No pack configured. Paste a StoryPack URL to continue.'
-        });
-      }
+      showPackConfig({
+        prefill: '',
+        status: 'No pack configured. Paste a StoryPack URL to continue.'
+      });
       renderMeta();
       return;
     }
@@ -1858,12 +1903,10 @@ async function boot() {
       const statusText = `story_pack_http_${response.status}`;
       state.story = { tag: 'error', error: statusText };
       setErrorScreen('Story failed to load.', `Reader could not fetch StoryPack (${response.status}) from ${packUrl}.`);
-      if (runtimeConfig.allowPackOverride) {
-        showPackConfig({
-          prefill: packUrl,
-          status: `Pack fetch failed (${response.status}). Try a different StoryPack URL.`
-        });
-      }
+      showPackConfig({
+        prefill: packUrl,
+        status: `Pack fetch failed (${response.status}). Try a different StoryPack URL.`
+      });
       renderMeta();
       return;
     }
@@ -1875,8 +1918,8 @@ async function boot() {
     state.nav = { tag: 'idle', pageIndex: 0 };
     clearErrorScreen();
     syncPackConfigVisibility();
-    if (runtimeConfig.allowPackOverride) {
-      dom.packConfigStatus.textContent = `Loaded pack: ${packUrl}`;
+    if (canOverridePackSource()) {
+      setPackStatus(`Loaded pack: ${packUrl}`);
     }
     renderAll();
 
@@ -1890,7 +1933,7 @@ async function boot() {
     const details = text(error && error.message || error);
     state.story = { tag: 'error', error: details };
     setErrorScreen('Reader runtime failed.', details);
-    if (state.runtime.tag === 'ready' && state.runtime.config.allowPackOverride) {
+    if (state.runtime.tag === 'ready') {
       showPackConfig({
         prefill: resolvePackUrl(state.runtime.config) || '',
         status: `Runtime error: ${details}. Try a different StoryPack URL.`

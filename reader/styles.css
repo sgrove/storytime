@@ -1100,6 +1100,12 @@ body {
   padding: 20px;
 }
 
+#errorPackCard {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 /* ----------------------------------------------------------------
    Settings Toggle Button (in leather bar)
    ---------------------------------------------------------------- */
