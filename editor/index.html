@@ -22,6 +22,8 @@
         --line: #cfb894;
         --ok: #2f7a47;
         --danger: #9a3420;
+        --shadow-warm: rgba(26, 16, 8, 0.15);
+        --shadow-warm-deep: rgba(26, 16, 8, 0.25);
       }
 
       * { box-sizing: border-box; }
@@ -30,10 +32,32 @@
         margin: 0;
         font-family: "Nunito Sans", sans-serif;
         color: var(--ink);
-        background:
-          radial-gradient(circle at 12% 10%, rgba(255, 242, 210, 0.68), transparent 30%),
-          radial-gradient(circle at 88% 16%, rgba(230, 194, 124, 0.35), transparent 26%),
-          linear-gradient(135deg, #f9f3e8 0%, #ead8b8 52%, #e8d8bc 100%);
+        background-color: #4a3728;
+        background-image:
+          /* vignette darkening at edges */
+          radial-gradient(ellipse at center, transparent 50%, rgba(26, 16, 8, 0.45) 100%),
+          /* wood grain stripes */
+          repeating-linear-gradient(
+            92deg,
+            rgba(93, 64, 40, 0.28) 0px,
+            transparent 2px,
+            transparent 10px,
+            rgba(93, 64, 40, 0.14) 12px,
+            transparent 14px,
+            transparent 28px
+          ),
+          /* wood grain undulation */
+          repeating-linear-gradient(
+            88deg,
+            rgba(120, 80, 45, 0.12) 0px,
+            transparent 4px,
+            transparent 22px,
+            rgba(80, 52, 30, 0.1) 24px,
+            transparent 26px,
+            transparent 48px
+          ),
+          /* warm base gradient */
+          linear-gradient(170deg, #5c4a3a 0%, #4a3728 40%, #3d2517 100%);
         min-height: 100vh;
       }
 
@@ -44,23 +68,66 @@
         display: grid;
         grid-template-columns: 280px 1fr 320px;
         gap: 16px;
+        position: relative;
       }
 
       .panel {
-        background: linear-gradient(180deg, rgba(255, 250, 239, 0.93), rgba(245, 235, 213, 0.95));
+        background:
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
+          linear-gradient(180deg, rgba(255, 250, 239, 0.96), rgba(245, 235, 213, 0.97));
         border: 1px solid var(--line);
-        border-radius: 18px;
-        box-shadow: 0 16px 30px rgba(68, 38, 13, 0.14);
+        border-radius: 14px;
+        box-shadow:
+          0 4px 8px rgba(26, 16, 8, 0.1),
+          0 16px 30px var(--shadow-warm);
         overflow: hidden;
       }
 
       .panel-head {
-        background: linear-gradient(90deg, var(--wood-dark), var(--wood));
+        background: linear-gradient(90deg, var(--wood-dark), var(--wood), var(--wood-dark));
         color: #fdf6e9;
-        padding: 12px 14px;
+        padding: 12px 16px;
         font-family: "Cormorant Garamond", serif;
-        font-size: 23px;
-        letter-spacing: 0.4px;
+        font-size: 22px;
+        letter-spacing: 0.6px;
+        box-shadow:
+          inset 0 -2px 4px rgba(0, 0, 0, 0.15),
+          0 2px 4px rgba(26, 16, 8, 0.1);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+      }
+
+      /* Coffee ring stain decoration */
+      .app::after {
+        content: '';
+        position: absolute;
+        bottom: 30px;
+        left: 50px;
+        width: 68px;
+        height: 68px;
+        border-radius: 50%;
+        border: 3px solid rgba(139, 94, 60, 0.07);
+        box-shadow: inset 0 0 10px rgba(139, 94, 60, 0.04);
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* Leather spine between lobby and editor panels */
+      .app::before {
+        content: '';
+        position: absolute;
+        left: 290px;
+        top: 80px;
+        bottom: 20px;
+        width: 14px;
+        background: linear-gradient(135deg, #5c3a2e, #8b5e3c, #5c3a2e);
+        border-radius: 3px;
+        box-shadow:
+          inset -3px 0 6px rgba(0, 0, 0, 0.3),
+          2px 0 8px rgba(0, 0, 0, 0.12);
+        z-index: 5;
+        border-right: 2px dashed rgba(201, 154, 46, 0.2);
+        pointer-events: none;
       }
 
       .panel-body {
@@ -79,13 +146,17 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        border: 1px solid var(--line);
-        border-radius: 20px;
-        padding: 14px 18px;
+        border: 1px solid rgba(93, 55, 23, 0.4);
+        border-radius: 14px;
+        padding: 14px 20px;
         background:
-          linear-gradient(120deg, rgba(120, 67, 27, 0.95), rgba(165, 104, 42, 0.88)),
-          linear-gradient(45deg, rgba(255, 230, 180, 0.35), transparent);
-        color: #ffefcc;
+          linear-gradient(120deg, rgba(90, 53, 22, 0.97), rgba(138, 90, 45, 0.92)),
+          linear-gradient(45deg, rgba(255, 230, 180, 0.2), transparent);
+        color: #fdf6e9;
+        box-shadow:
+          inset 0 -2px 4px rgba(0, 0, 0, 0.15),
+          0 4px 12px rgba(26, 16, 8, 0.2);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
       }
 
       .brand h1 {
@@ -109,16 +180,45 @@
 
       .story-item {
         border: 1px solid var(--line);
-        background: rgba(255, 248, 233, 0.95);
-        border-radius: 10px;
-        padding: 9px;
+        background: #faf6ed;
+        border-radius: 12px;
+        padding: 12px 14px;
         cursor: pointer;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        align-items: start;
+        box-shadow: 0 2px 4px rgba(26, 16, 8, 0.08);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        text-align: left;
+      }
+
+      .story-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(26, 16, 8, 0.15);
       }
 
       .story-item.active {
         border-color: var(--gold);
-        box-shadow: 0 0 0 2px rgba(201, 154, 46, 0.24);
+        box-shadow: 0 0 0 2px rgba(201, 154, 46, 0.24), 0 6px 16px rgba(26, 16, 8, 0.12);
       }
+
+      .story-status {
+        display: inline-flex;
+        align-items: center;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+
+      .story-status.deployed { background: #d4edda; color: #2f5a3a; }
+      .story-status.generating { background: #fff3cd; color: #856404; }
+      .story-status.draft { background: #e8dcc8; color: #5c4030; }
+      .story-status.ready { background: #d1e8ff; color: #2c4a6e; }
 
       .meta {
         font-size: 12px;
@@ -157,29 +257,82 @@
 
       .tabs {
         display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-bottom: 10px;
+        gap: 0;
+        margin-bottom: 14px;
       }
 
-      .tab-btn,
       .btn {
-        border: 1px solid rgba(93, 55, 23, 0.35);
-        background: linear-gradient(180deg, #f9e6b9, #e0bb74);
-        color: #4d2f13;
-        border-radius: 999px;
-        padding: 8px 12px;
+        border: 1px solid #8b7320;
+        background: linear-gradient(180deg, #d4b44a 0%, #c9a227 100%);
+        color: #2c1810;
+        border-radius: 8px;
+        padding: 8px 16px;
         font: inherit;
         font-weight: 700;
         cursor: pointer;
+        box-shadow:
+          0 3px 0 #8b7320,
+          0 4px 8px rgba(26, 16, 8, 0.15);
+        transition: transform 0.1s ease, box-shadow 0.1s ease;
+      }
+
+      .btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow:
+          0 4px 0 #8b7320,
+          0 6px 12px rgba(26, 16, 8, 0.2);
+      }
+
+      .btn:active:not(:disabled) {
+        transform: translateY(2px);
+        box-shadow:
+          0 1px 0 #8b7320,
+          0 2px 4px rgba(26, 16, 8, 0.1);
+      }
+
+      .tab-btn {
+        position: relative;
+        border: none;
+        background: var(--ribbon-color, #8b3d3a);
+        color: #fdf6e9;
+        border-radius: 0;
+        padding: 10px 16px 14px;
+        font: inherit;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        clip-path: polygon(0 0, 100% 0, 100% 80%, 50% 100%, 0 80%);
+        opacity: 0.75;
+        transition: opacity 0.15s ease, padding-bottom 0.15s ease;
+        box-shadow: none;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        letter-spacing: 0.3px;
+      }
+
+      .tab-btn:hover:not(:disabled) {
+        opacity: 0.9;
+        padding-bottom: 16px;
+      }
+
+      .tab-btn:active:not(:disabled) {
+        opacity: 1;
       }
 
       .tab-btn.active {
-        background: linear-gradient(180deg, #ffd977, #da9b17);
+        opacity: 1;
+        padding-bottom: 20px;
       }
+
+      .tab-btn:nth-child(1) { --ribbon-color: #8b3d3a; }
+      .tab-btn:nth-child(2) { --ribbon-color: #2c4a6e; }
+      .tab-btn:nth-child(3) { --ribbon-color: #3d6b4f; }
+      .tab-btn:nth-child(4) { --ribbon-color: #c9a227; color: #2c1810; }
+      .tab-btn:nth-child(5) { --ribbon-color: #6b4a8a; }
 
       .btn.flat {
         background: #fff9eb;
+        border-color: rgba(93, 55, 23, 0.25);
+        box-shadow: 0 2px 0 rgba(93, 55, 23, 0.1);
       }
 
       .btn.flat.active {
@@ -188,26 +341,44 @@
       }
 
       .btn.warn {
-        background: linear-gradient(180deg, #f9c8a9, #e08a61);
+        background: linear-gradient(180deg, #c45a40, #a8453a);
+        color: #fdf6e9;
+        border-color: #6b2d2a;
+        box-shadow:
+          0 3px 0 #6b2d2a,
+          0 4px 8px rgba(26, 16, 8, 0.15);
       }
 
       .btn.ok {
-        background: linear-gradient(180deg, #b9e7c6, #77bd8e);
+        background: linear-gradient(180deg, #5a8c6a, #3d6b4f);
+        color: #fdf6e9;
+        border-color: #2d5038;
+        box-shadow:
+          0 3px 0 #2d5038,
+          0 4px 8px rgba(26, 16, 8, 0.15);
       }
 
       .btn:disabled,
       .tab-btn:disabled {
         opacity: 0.55;
         cursor: not-allowed;
+        transform: none !important;
       }
 
       .stack { display: grid; gap: 12px; }
 
       .card {
         border: 1px solid #cab28d;
-        border-radius: 13px;
-        padding: 10px;
-        background: #fff8e9;
+        border-radius: 12px;
+        padding: 12px;
+        background: #faf6ed;
+        box-shadow: 0 2px 6px rgba(26, 16, 8, 0.08);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(26, 16, 8, 0.13);
       }
 
       .card h3 {
@@ -285,14 +456,76 @@
       .queue-item {
         border: 1px solid #c6b18d;
         border-radius: 10px;
-        padding: 9px;
-        background: #fff8ea;
+        padding: 10px 12px;
+        background: #faf6ed;
+        transition: opacity 0.2s ease;
       }
 
-      .job-pending { border-left: 4px solid #cc9a36; }
-      .job-running { border-left: 4px solid #2f71a8; }
-      .job-completed { border-left: 4px solid var(--ok); }
-      .job-failed { border-left: 4px solid var(--danger); }
+      .job-pending { border-left: 4px solid #c9a227; }
+      .job-running { border-left: 4px solid #2c4a6e; background: #f5f0e0; }
+      .job-completed { border-left: 4px solid var(--ok); opacity: 0.7; }
+      .job-failed { border-left: 4px solid var(--danger); background: #fdf2f0; }
+
+      .deploy-success {
+        background: linear-gradient(135deg, #f0ead4, #e8dcc0);
+        border: 2px solid #3d6b4f;
+        border-radius: 12px;
+        padding: 18px;
+        text-align: center;
+        margin-top: 10px;
+      }
+
+      .deploy-success h3 {
+        color: #3d6b4f;
+        font-size: 26px;
+        margin-bottom: 8px;
+      }
+
+      .deploy-url {
+        font-family: monospace;
+        font-size: 13px;
+        background: #fff8e9;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        word-break: break-all;
+        margin: 8px 0 12px;
+      }
+
+      .progress-bar {
+        height: 8px;
+        background: #5c3a2e;
+        border-radius: 4px;
+        overflow: hidden;
+        margin: 6px 0 2px;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #c9a227, #d4b44a);
+        border-radius: 4px;
+        transition: width 0.4s ease-out;
+        position: relative;
+      }
+
+      .progress-fill::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          rgba(255, 255, 255, 0.2) 50%,
+          transparent 100%
+        );
+        animation: shimmer 1.5s ease-in-out infinite;
+      }
+
+      @keyframes shimmer {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+      }
 
       .hint { font-size: 12px; opacity: 0.75; }
 
@@ -311,9 +544,35 @@
         background: #f0dfbf;
       }
 
+      /* Focus indicators — gold ring */
+      .btn:focus-visible,
+      .tab-btn:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--gold);
+        outline-offset: 2px;
+      }
+
+      input:focus,
+      textarea:focus,
+      select:focus {
+        border-color: var(--gold);
+        box-shadow: 0 0 0 2px rgba(201, 154, 46, 0.2);
+      }
+
       @media (max-width: 1180px) {
         .app { grid-template-columns: 1fr; }
+        .app::before { display: none; }
         .brand { flex-direction: column; align-items: flex-start; gap: 8px; }
+      }
+
+      /* Accessibility: reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
       }
     </style>
   </head>
@@ -664,16 +923,32 @@
       function renderStoryList() {
         const root = $("storyList");
         if (!state.stories.length) {
-          root.innerHTML = '<div class="hint">No stories yet. Create your first story.</div>';
+          root.innerHTML = `
+            <div style="text-align:center;padding:24px 16px;">
+              <h2 style="font-family:'Cormorant Garamond',serif;font-size:26px;color:var(--wood);margin-bottom:6px;">
+                Welcome to Storytime
+              </h2>
+              <p style="opacity:0.7;margin:0 0 12px;font-size:14px;">
+                Create your first story below.
+              </p>
+            </div>
+          `;
           return;
         }
 
         root.innerHTML = state.stories.map((story) => {
           const active = state.currentStory && story.id === state.currentStory.id;
+          const statusClass = (story.status || "draft").toLowerCase().replace(/[^a-z]/g, "");
+          const charCount = (story.characters || []).length;
+          const pageCount = (story.pages || []).length;
+          const stats = [pageCount ? `${pageCount} pg` : "", charCount ? `${charCount} ch` : ""].filter(Boolean).join(" · ");
           return `
             <button class="story-item ${active ? "active" : ""}" data-action="pick-story" data-story-id="${story.id}">
-              <div><strong>${esc(story.title)}</strong></div>
-              <div class="meta">${esc(story.slug)} | ${esc(story.status)}</div>
+              <div>
+                <div><strong>${esc(story.title)}</strong></div>
+                <div class="meta">${esc(story.slug)}${stats ? " · " + stats : ""}</div>
+              </div>
+              <span class="story-status ${statusClass}">${esc(story.status || "draft")}</span>
             </button>
           `;
         }).join("");
@@ -1005,8 +1280,16 @@
               <div class="field"><label>Art Style</label><textarea id="storyStyle">${esc(state.currentStory.art_style || "")}</textarea></div>
               <div class="actions">
                 <button class="btn ok" data-action="save-story">Save Story</button>
-                ${state.currentStory.deploy_url ? `<a class="btn" href="${esc(state.currentStory.deploy_url)}" target="_blank">Open Deploy</a>` : ""}
               </div>
+              ${state.currentStory.deploy_url ? `
+                <div class="deploy-success">
+                  <h3>Story Published!</h3>
+                  <div class="deploy-url">${esc(state.currentStory.deploy_url)}</div>
+                  <div class="actions" style="justify-content:center;">
+                    <a class="btn ok" href="${esc(state.currentStory.deploy_url)}" target="_blank">Open Story</a>
+                  </div>
+                </div>
+              ` : ""}
             </div>
           </div>
         `;
@@ -1416,6 +1699,10 @@
           const queuePosition = typeof job.queue_position === "number" ? job.queue_position : null;
           const preview = compactText(job.text_preview, 115);
           const targetMeta = compactText(job.target_label || "");
+          const sceneCharacters = Array.isArray(job.scene_character_names)
+            ? job.scene_character_names.filter((name) => !!name)
+            : [];
+          const sceneCharacterText = sceneCharacters.join(", ");
 
           return `
             <div class="queue-item job-${esc(status)}">
@@ -1423,11 +1710,12 @@
               <div class="meta">target: ${esc(targetMeta || job.target_id || "n/a")}</div>
               ${job.character_name ? `<div class="meta">speaker: ${esc(job.character_name)}</div>` : ""}
               ${typeof job.page_number === "number" ? `<div class="meta">page: ${esc(job.page_number)}</div>` : ""}
+              ${sceneCharacterText ? `<div class="meta">characters: ${esc(sceneCharacterText)}</div>` : ""}
               ${preview ? `<div class="meta">text: ${esc(preview)}</div>` : ""}
               ${age ? `<div class="meta">age: ${esc(age)}</div>` : ""}
               ${queuePosition ? `<div class="meta">queue position: ${esc(queuePosition)}</div>` : ""}
               ${job.active_detail ? `<div class="meta">${esc(job.active_detail)}</div>` : ""}
-              ${typeof progress === "number" ? `<div class="meta">progress: ${progress}%</div>` : ""}
+              ${typeof progress === "number" ? `<div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100, progress)}%"></div></div><div class="meta">${progress}%</div>` : ""}
               ${obanMetaParts.length ? `<div class="meta">${esc(obanMetaParts.join(" • "))}</div>` : ""}
               ${wait ? `<div class="meta">next retry window: ${esc(wait)}</div>` : ""}
               ${oban && oban.last_error ? `<div class="meta" style="color:#872d1a;">worker error: ${esc(compactText(oban.last_error, 180))}</div>` : ""}

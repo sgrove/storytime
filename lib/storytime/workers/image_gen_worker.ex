@@ -123,7 +123,6 @@ defmodule Storytime.Workers.ImageGenWorker do
           }
         end)
         |> Enum.reject(&blank?(&1.image_url))
-        |> Enum.take(6)
     end
   end
 

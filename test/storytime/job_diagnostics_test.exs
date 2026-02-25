@@ -81,6 +81,50 @@ defmodule Storytime.JobDiagnosticsTest do
     assert oldest.oban.max_attempts == 6
   end
 
+  test "enriches scene jobs with full ordered character list" do
+    now = DateTime.from_unix!(1_762_094_200)
+    inserted_at = DateTime.add(now, -30, :second)
+
+    story = %{
+      characters: [
+        %{id: "char-1", name: "Luna"},
+        %{id: "char-2", name: "Milo"},
+        %{id: "char-3", name: "Ari"}
+      ],
+      pages: [
+        %{
+          id: "page-1",
+          page_index: 0,
+          scene_description: "All heroes gather at the oak tree.",
+          dialogue_lines: [
+            %{id: "line-2", character_id: "char-2", sort_order: 2},
+            %{id: "line-1", character_id: "char-1", sort_order: 1},
+            %{id: "line-3", character_id: "char-2", sort_order: 3},
+            %{id: "line-4", character_id: "char-3", sort_order: 4}
+          ]
+        }
+      ],
+      music_tracks: []
+    }
+
+    jobs = [
+      %{
+        id: "job-scene",
+        job_type: :scene,
+        target_id: "page-1",
+        status: :running,
+        error: nil,
+        inserted_at: inserted_at,
+        updated_at: inserted_at
+      }
+    ]
+
+    [job] = JobDiagnostics.enrich(jobs, story, [], now)
+
+    assert job.target_label == "Page 1 scene"
+    assert job.scene_character_names == ["Luna", "Milo", "Ari"]
+  end
+
   test "shows retry timing when oban marks a pending job as retryable" do
     now = DateTime.from_unix!(1_762_094_200)
     scheduled_at = DateTime.add(now, 45, :second)

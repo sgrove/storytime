@@ -106,12 +106,15 @@ defmodule Storytime.JobDiagnostics do
         %{}
 
       page ->
+        scene_character_names = scene_character_names(page, context.characters)
+
         %{
           target_label: "Page #{page.page_index + 1} scene",
           page_id: page.id,
           page_index: page.page_index,
           page_number: page.page_index + 1,
-          text_preview: clip(page.scene_description)
+          text_preview: clip(page.scene_description),
+          scene_character_names: scene_character_names
         }
     end
   end
@@ -373,4 +376,21 @@ defmodule Storytime.JobDiagnostics do
   end
 
   defp clip(value), do: clip(to_string(value))
+
+  defp scene_character_names(page, characters_by_id) do
+    page
+    |> Map.get(:dialogue_lines, [])
+    |> List.wrap()
+    |> Enum.sort_by(fn line -> {line.sort_order || 0, line.id || ""} end)
+    |> Enum.map(&Map.get(&1, :character_id))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.map(fn character_id ->
+      case Map.get(characters_by_id, character_id) do
+        nil -> nil
+        character -> character.name
+      end
+    end)
+    |> Enum.reject(fn name -> not is_binary(name) or String.trim(name) == "" end)
+  end
 end

@@ -123,6 +123,44 @@ defmodule Storytime.Workers.ImageGenWorkerTest do
            ]
   end
 
+  test "scene references include all valid characters (no hard cap)" do
+    previous_host = System.get_env("PHX_HOST")
+    System.put_env("PHX_HOST", "storytime-api-091733.onrender.com")
+
+    on_exit(fn ->
+      if previous_host == nil do
+        System.delete_env("PHX_HOST")
+      else
+        System.put_env("PHX_HOST", previous_host)
+      end
+    end)
+
+    characters =
+      Enum.map(1..8, fn idx ->
+        %{
+          id: "char-#{idx}",
+          name: "Character #{idx}",
+          visual_description: "desc #{idx}",
+          headshot_url: "/assets/story/char-#{idx}.png"
+        }
+      end)
+
+    dialogue_lines =
+      Enum.map(1..8, fn idx ->
+        %{id: "line-#{idx}", character_id: "char-#{idx}", sort_order: idx}
+      end)
+
+    story = %{
+      characters: characters,
+      pages: [%{id: "page-1", dialogue_lines: dialogue_lines}]
+    }
+
+    refs = ImageGenWorker.scene_character_references(story, "page-1")
+
+    assert length(refs) == 8
+    assert Enum.map(refs, & &1.character_id) == Enum.map(1..8, &"char-#{&1}")
+  end
+
   test "extracts generated image bytes from responses api payload" do
     image_bytes = "png-bytes"
 

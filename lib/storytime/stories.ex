@@ -543,6 +543,10 @@ defmodule Storytime.Stories do
     update_dialogue_line(story_id, line_id, %{audio_url: audio_url, timings_url: timings_url})
   end
 
+  def set_dialogue_timings(story_id, line_id, timings_url) do
+    update_dialogue_line(story_id, line_id, %{timings_url: timings_url})
+  end
+
   def set_music_audio(story_id, track_id, audio_url) do
     update_music_track(story_id, track_id, %{audio_url: audio_url})
   end

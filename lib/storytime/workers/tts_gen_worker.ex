@@ -11,6 +11,8 @@ defmodule Storytime.Workers.TtsGenWorker do
   alias Storytime.WordTimings
 
   @elevenlabs_base "https://api.elevenlabs.io/v1/text-to-speech"
+  @default_narrator_voice_id "Xb7hH8MSUJpSbSDYk0k2"
+  @default_elevenlabs_model "eleven_multilingual_v2"
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -41,6 +43,16 @@ defmodule Storytime.Workers.TtsGenWorker do
 
   def force_payload?(_args), do: false
 
+  @doc false
+  def preserve_timings_payload?(args) when is_map(args) do
+    payload = Map.get(args, "payload") || Map.get(args, :payload) || %{}
+
+    Map.get(payload, "preserve_timings") in [true, "true", 1, "1"] or
+      Map.get(payload, :preserve_timings) in [true, "true", 1, "1"]
+  end
+
+  def preserve_timings_payload?(_args), do: false
+
   defp do_perform(args) do
     with {:ok, generation_job_id} <- required_arg(args, "generation_job_id"),
          {:ok, story_id} <- required_arg(args, "story_id"),
@@ -67,8 +79,17 @@ defmodule Storytime.Workers.TtsGenWorker do
                :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
                {:ok, audio_filename, timings_filename} <- filenames(type, target_id),
                {:ok, audio_url} <- Assets.write_binary(story_id, audio_filename, audio_bytes),
-               timings <- WordTimings.from_alignment(text, alignment),
-               {:ok, timings_url} <- Assets.write_json(story_id, timings_filename, timings),
+               {:ok, timings_url} <-
+                 resolve_timings_url(
+                   story_id,
+                   type,
+                   target_id,
+                   item,
+                   args,
+                   text,
+                   alignment,
+                   timings_filename
+                 ),
                {:ok, _} <- persist_urls(story_id, type, target_id, audio_url, timings_url),
                :ok <- emit_progress(story_id, type, target_id, generation_job_id, 95),
                :ok <- mark_completed(generation_job_id) do
@@ -199,12 +220,12 @@ defmodule Storytime.Workers.TtsGenWorker do
         {:error, :missing_elevenlabs_api_key}
 
       true ->
-        chosen_voice = voice_id || System.get_env("ELEVENLABS_DEFAULT_VOICE_ID")
+        chosen_voice = resolve_voice_id(voice_id)
 
         if blank?(chosen_voice) do
           {:error, :missing_voice_id}
         else
-          chosen_model = model_id || "eleven_multilingual_v2"
+          chosen_model = model_id || @default_elevenlabs_model
 
           url = "#{@elevenlabs_base}/#{chosen_voice}/with-timestamps"
 
@@ -254,6 +275,71 @@ defmodule Storytime.Workers.TtsGenWorker do
 
   defp persist_urls(_story_id, _type, _target_id, _audio_url, _timings_url),
     do: {:error, :unsupported_tts_type}
+
+  defp resolve_timings_url(
+         story_id,
+         "dialogue",
+         _target_id,
+         line,
+         args,
+         text,
+         alignment,
+         timings_filename
+       ) do
+    if should_reuse_timings?("dialogue", line, args) do
+      {:ok, line.timings_url}
+    else
+      persist_timings_url(story_id, timings_filename, text, alignment)
+    end
+  end
+
+  defp resolve_timings_url(
+         story_id,
+         "narration",
+         _target_id,
+         _item,
+         _args,
+         text,
+         alignment,
+         timings_filename
+       ) do
+    persist_timings_url(story_id, timings_filename, text, alignment)
+  end
+
+  defp resolve_timings_url(
+         _story_id,
+         _type,
+         _target_id,
+         _item,
+         _args,
+         _text,
+         _alignment,
+         _timings_filename
+       ),
+       do: {:error, :unsupported_tts_type}
+
+  defp persist_timings_url(story_id, filename, text, alignment) do
+    timings = WordTimings.from_alignment(text, alignment)
+    Assets.write_json(story_id, filename, timings)
+  end
+
+  @doc false
+  def should_reuse_timings?("dialogue", line, args) when is_map(line) do
+    preserve_timings_payload?(args) and not blank?(Map.get(line, :timings_url))
+  end
+
+  def should_reuse_timings?(_type, _line, _args), do: false
+
+  @doc false
+  def default_voice_id do
+    env_voice = System.get_env("ELEVENLABS_DEFAULT_VOICE_ID")
+    if blank?(env_voice), do: @default_narrator_voice_id, else: env_voice
+  end
+
+  @doc false
+  def resolve_voice_id(voice_id) do
+    if blank?(voice_id), do: default_voice_id(), else: voice_id
+  end
 
   @doc false
   def existing_audio_urls("dialogue", line) do
