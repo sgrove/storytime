@@ -41,8 +41,22 @@ defmodule StorytimeWeb.StoryChannel do
     "deploy_failed"
   ]
 
+  @required_broadcast_payload_keys %{
+    "story_updated" => ["story"],
+    "character_added" => ["character"],
+    "page_updated" => ["page"],
+    "generation_started" => ["job_type", "target_id"],
+    "generation_progress" => ["job_type", "target_id", "progress"],
+    "generation_completed" => ["job_type", "target_id"],
+    "generation_failed" => ["job_type", "target_id", "error"],
+    "deploy_started" => [],
+    "deploy_completed" => ["url"],
+    "deploy_failed" => ["error"]
+  }
+
   def required_client_events, do: @required_client_events
   def required_broadcast_events, do: @required_broadcast_events
+  def required_broadcast_payload_keys, do: @required_broadcast_payload_keys
 
   @impl true
   def join("story:" <> story_id, _payload, socket) do

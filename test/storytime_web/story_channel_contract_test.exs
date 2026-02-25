@@ -38,6 +38,19 @@ defmodule StorytimeWeb.StoryChannelContractTest do
     "deploy_failed"
   ]
 
+  @fr012_required_payload_keys %{
+    "story_updated" => ["story"],
+    "character_added" => ["character"],
+    "page_updated" => ["page"],
+    "generation_started" => ["job_type", "target_id"],
+    "generation_progress" => ["job_type", "target_id", "progress"],
+    "generation_completed" => ["job_type", "target_id"],
+    "generation_failed" => ["job_type", "target_id", "error"],
+    "deploy_started" => [],
+    "deploy_completed" => ["url"],
+    "deploy_failed" => ["error"]
+  }
+
   test "FR-011 required client events are declared" do
     declared = StoryChannel.required_client_events() |> MapSet.new()
 
@@ -51,6 +64,19 @@ defmodule StorytimeWeb.StoryChannelContractTest do
 
     for event <- @fr012_required_broadcast_events do
       assert MapSet.member?(declared, event), "missing required broadcast event #{event}"
+    end
+  end
+
+  test "FR-012 required broadcast payload keys are declared" do
+    declared = StoryChannel.required_broadcast_payload_keys()
+
+    for {event, required_keys} <- @fr012_required_payload_keys do
+      declared_keys = Map.get(declared, event, [])
+
+      for key <- required_keys do
+        assert key in declared_keys,
+               "missing required payload key #{key} for broadcast event #{event}"
+      end
     end
   end
 
