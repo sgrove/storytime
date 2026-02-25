@@ -31,7 +31,9 @@
 - [x] CORS regression tests added for `/health` requests with/without `Origin`, preventing prior FunctionClause crash.
 - [x] Local dialyzer runs clean (`mix dialyzer`) as a pre-deploy API guard.
 - [x] Generation workers now emit staged `generation_progress` updates and no longer silently fallback to non-spec providers.
+- [x] Image/TTS/music workers now reuse existing persisted asset URLs for the same target, preventing duplicate provider generation work on retries.
 - [x] GitHub Actions CD now runs compile/test/dialyzer guards, validates `render.yaml` via Render CLI, and triggers/polls API/editor/reader deploys on pushes to `main`.
+- [x] Reader identity is now session-stable (ephemeral, no login) and host page sync broadcasts are host-only.
 
 ## In progress
 - [ ] Full event payload parity across every FR-012 broadcast shape.

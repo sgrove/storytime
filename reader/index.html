@@ -300,6 +300,8 @@
 
     <script src="https://unpkg.com/@instantdb/core@0.22.143/dist/standalone/index.umd.cjs"></script>
     <script>
+      const IDENTITY_STORAGE_PREFIX = "storytime_reader_identity_v1";
+
       const state = {
         config: null,
         pack: null,
@@ -314,10 +316,7 @@
         narrateToken: 0,
         lastPointerAt: 0,
         participants: new Map(),
-        identity: {
-          id: `reader-${Math.random().toString(36).slice(2, 10)}`,
-          name: `Reader ${Math.floor(Math.random() * 900 + 100)}`
-        },
+        identity: null,
         collab: {
           backend: "none",
           db: null,
@@ -331,6 +330,45 @@
 
       const $ = (id) => document.getElementById(id);
       const esc = (value) => String(value ?? "").replace(/[&<>\"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+
+      function randomIdentity() {
+        return {
+          id: `reader-${Math.random().toString(36).slice(2, 10)}`,
+          name: `Reader ${Math.floor(Math.random() * 900 + 100)}`
+        };
+      }
+
+      function identityStorageKey() {
+        const scope =
+          state.pack?.slug ||
+          state.config?.storySlug ||
+          state.config?.storyId ||
+          window.location.hostname ||
+          "story";
+
+        return `${IDENTITY_STORAGE_PREFIX}:${scope}`;
+      }
+
+      function ensureIdentity() {
+        const key = identityStorageKey();
+
+        try {
+          const cached = window.sessionStorage.getItem(key);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && typeof parsed.id === "string" && typeof parsed.name === "string") {
+              state.identity = parsed;
+              return;
+            }
+          }
+        } catch (_err) {}
+
+        state.identity = randomIdentity();
+
+        try {
+          window.sessionStorage.setItem(key, JSON.stringify(state.identity));
+        } catch (_err) {}
+      }
 
       async function loadRuntimeConfig() {
         const query = new URLSearchParams(window.location.search);
@@ -438,6 +476,7 @@
         $("storyMeta").textContent = `${pack.slug || ""} • mode: ${state.mode}`;
 
         updateMusicForPage();
+        sendPresence();
         sendPageSync();
 
         if (state.mode === "narrate") {
@@ -947,7 +986,7 @@
       }
 
       function sendPageSync() {
-        if (!state.collab.room) return;
+        if (!state.collab.room || !state.collab.isHost) return;
 
         const payload = {
           type: "page",
@@ -991,6 +1030,7 @@
           setLoading("Loading story pack...");
           state.config = await loadRuntimeConfig();
           await loadPack();
+          ensureIdentity();
           initAudioListeners();
           initControls();
           await initCollab().catch(showError);

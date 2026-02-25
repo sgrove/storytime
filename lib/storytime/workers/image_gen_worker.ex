@@ -17,28 +17,38 @@ defmodule Storytime.Workers.ImageGenWorker do
          {:ok, story_id} <- required_arg(args, "story_id"),
          {:ok, type} <- required_arg(args, "type"),
          {:ok, target_id} <- required_arg(args, "target_id"),
-         {:ok, story} <- fetch_story(story_id),
-         {:ok, target_prompt, filename} <- prompt_and_filename(story, type, target_id),
-         :ok <- mark_running(generation_job_id),
-         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 10),
-         {:ok, image_bytes, provider} <- generate_image(target_prompt, image_size(type)),
-         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
-         {:ok, asset_url} <- Assets.write_binary(story_id, filename, image_bytes),
-         {:ok, _} <- persist_url(story_id, type, target_id, asset_url),
-         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 95),
-         :ok <- mark_completed(generation_job_id) do
-      _ = Stories.maybe_mark_story_ready(story_id)
-      broadcast_progress(story_id, type, target_id, generation_job_id, 100)
+         {:ok, story} <- fetch_story(story_id) do
+      case existing_asset_url(story, type, target_id) do
+        {:ok, asset_url} ->
+          complete_from_cached(story_id, type, target_id, generation_job_id, asset_url)
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
-        story_id: story_id,
-        job_type: map_job_type(type),
-        target_id: target_id,
-        job_id: generation_job_id,
-        url: asset_url
-      })
+        :none ->
+          with {:ok, target_prompt, filename} <- prompt_and_filename(story, type, target_id),
+               :ok <- mark_running(generation_job_id),
+               :ok <- emit_progress(story_id, type, target_id, generation_job_id, 10),
+               {:ok, image_bytes, provider} <- generate_image(target_prompt, image_size(type)),
+               :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
+               {:ok, asset_url} <- Assets.write_binary(story_id, filename, image_bytes),
+               {:ok, _} <- persist_url(story_id, type, target_id, asset_url),
+               :ok <- emit_progress(story_id, type, target_id, generation_job_id, 95),
+               :ok <- mark_completed(generation_job_id) do
+            _ = Stories.maybe_mark_story_ready(story_id)
+            broadcast_progress(story_id, type, target_id, generation_job_id, 100)
 
-      {:ok, %{url: asset_url, provider: provider}}
+            StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+              story_id: story_id,
+              job_type: map_job_type(type),
+              target_id: target_id,
+              job_id: generation_job_id,
+              url: asset_url
+            })
+
+            {:ok, %{url: asset_url, provider: provider}}
+          else
+            {:error, reason} ->
+              handle_failure(args, reason)
+          end
+      end
     else
       {:error, reason} ->
         handle_failure(args, reason)
@@ -147,6 +157,41 @@ defmodule Storytime.Workers.ImageGenWorker do
     do: Stories.set_page_scene(story_id, target_id, url)
 
   defp persist_url(_story_id, _type, _target_id, _url), do: {:error, :unsupported_image_type}
+
+  @doc false
+  def existing_asset_url(story, "headshot", target_id) do
+    case Enum.find(story.characters || [], &(&1.id == target_id and not blank?(&1.headshot_url))) do
+      nil -> :none
+      character -> {:ok, character.headshot_url}
+    end
+  end
+
+  def existing_asset_url(story, "scene", target_id) do
+    case Enum.find(story.pages || [], &(&1.id == target_id and not blank?(&1.scene_image_url))) do
+      nil -> :none
+      page -> {:ok, page.scene_image_url}
+    end
+  end
+
+  def existing_asset_url(_story, _type, _target_id), do: :none
+
+  defp complete_from_cached(story_id, type, target_id, generation_job_id, asset_url) do
+    with :ok <- mark_completed(generation_job_id) do
+      _ = Stories.maybe_mark_story_ready(story_id)
+      broadcast_progress(story_id, type, target_id, generation_job_id, 100)
+
+      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+        story_id: story_id,
+        job_type: map_job_type(type),
+        target_id: target_id,
+        job_id: generation_job_id,
+        url: asset_url,
+        reused: true
+      })
+
+      {:ok, %{url: asset_url, provider: "cached", reused: true}}
+    end
+  end
 
   defp mark_running(job_id), do: status_update(job_id, :running)
   defp mark_completed(job_id), do: status_update(job_id, :completed)

@@ -14,27 +14,37 @@ defmodule Storytime.Workers.MusicGenWorker do
          {:ok, story_id} <- required_arg(args, "story_id"),
          {:ok, target_id} <- required_arg(args, "target_id"),
          {:ok, story} <- fetch_story(story_id),
-         {:ok, track} <- find_track(story, target_id),
-         :ok <- mark_running(generation_job_id),
-         :ok <- emit_progress(story_id, target_id, generation_job_id, 10),
-         {:ok, audio_bytes, provider} <- generate_music(track),
-         :ok <- emit_progress(story_id, target_id, generation_job_id, 75),
-         {:ok, asset_url} <- Assets.write_binary(story_id, "music_#{target_id}.mp3", audio_bytes),
-         {:ok, _} <- Stories.set_music_audio(story_id, target_id, asset_url),
-         :ok <- emit_progress(story_id, target_id, generation_job_id, 95),
-         :ok <- mark_completed(generation_job_id) do
-      _ = Stories.maybe_mark_story_ready(story_id)
-      broadcast_progress(story_id, target_id, generation_job_id, 100)
+         {:ok, track} <- find_track(story, target_id) do
+      case existing_track_audio(track) do
+        {:ok, asset_url} ->
+          complete_from_cached(story_id, target_id, generation_job_id, asset_url)
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
-        story_id: story_id,
-        job_type: "music",
-        target_id: target_id,
-        job_id: generation_job_id,
-        url: asset_url
-      })
+        :none ->
+          with :ok <- mark_running(generation_job_id),
+               :ok <- emit_progress(story_id, target_id, generation_job_id, 10),
+               {:ok, audio_bytes, provider} <- generate_music(track),
+               :ok <- emit_progress(story_id, target_id, generation_job_id, 75),
+               {:ok, asset_url} <-
+                 Assets.write_binary(story_id, "music_#{target_id}.mp3", audio_bytes),
+               {:ok, _} <- Stories.set_music_audio(story_id, target_id, asset_url),
+               :ok <- emit_progress(story_id, target_id, generation_job_id, 95),
+               :ok <- mark_completed(generation_job_id) do
+            _ = Stories.maybe_mark_story_ready(story_id)
+            broadcast_progress(story_id, target_id, generation_job_id, 100)
 
-      {:ok, %{url: asset_url, provider: provider}}
+            StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+              story_id: story_id,
+              job_type: "music",
+              target_id: target_id,
+              job_id: generation_job_id,
+              url: asset_url
+            })
+
+            {:ok, %{url: asset_url, provider: provider}}
+          else
+            {:error, reason} -> handle_failure(args, reason)
+          end
+      end
     else
       {:error, reason} -> handle_failure(args, reason)
     end
@@ -129,6 +139,29 @@ defmodule Storytime.Workers.MusicGenWorker do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  @doc false
+  def existing_track_audio(track) do
+    if blank?(track.audio_url), do: :none, else: {:ok, track.audio_url}
+  end
+
+  defp complete_from_cached(story_id, target_id, generation_job_id, asset_url) do
+    with :ok <- mark_completed(generation_job_id) do
+      _ = Stories.maybe_mark_story_ready(story_id)
+      broadcast_progress(story_id, target_id, generation_job_id, 100)
+
+      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+        story_id: story_id,
+        job_type: "music",
+        target_id: target_id,
+        job_id: generation_job_id,
+        url: asset_url,
+        reused: true
+      })
+
+      {:ok, %{url: asset_url, provider: "cached", reused: true}}
     end
   end
 

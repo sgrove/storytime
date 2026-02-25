@@ -18,32 +18,49 @@ defmodule Storytime.Workers.TtsGenWorker do
          {:ok, type} <- required_arg(args, "type"),
          {:ok, target_id} <- required_arg(args, "target_id"),
          {:ok, story} <- fetch_story(story_id),
-         {:ok, item} <- fetch_target(story, type, target_id),
-         {:ok, text, voice_id, model_id} <- tts_input(type, item),
-         :ok <- mark_running(generation_job_id),
-         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 10),
-         {:ok, audio_bytes, alignment, provider} <- synthesize(text, voice_id, model_id),
-         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
-         {:ok, audio_filename, timings_filename} <- filenames(type, target_id),
-         {:ok, audio_url} <- Assets.write_binary(story_id, audio_filename, audio_bytes),
-         timings <- WordTimings.from_alignment(text, alignment),
-         {:ok, timings_url} <- Assets.write_json(story_id, timings_filename, timings),
-         {:ok, _} <- persist_urls(story_id, type, target_id, audio_url, timings_url),
-         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 95),
-         :ok <- mark_completed(generation_job_id) do
-      _ = Stories.maybe_mark_story_ready(story_id)
-      broadcast_progress(story_id, type, target_id, generation_job_id, 100)
+         {:ok, item} <- fetch_target(story, type, target_id) do
+      case existing_audio_urls(type, item) do
+        {:ok, audio_url, timings_url} ->
+          complete_from_cached(
+            story_id,
+            type,
+            target_id,
+            generation_job_id,
+            audio_url,
+            timings_url
+          )
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
-        story_id: story_id,
-        job_type: map_job_type(type),
-        target_id: target_id,
-        job_id: generation_job_id,
-        url: audio_url,
-        timings_url: timings_url
-      })
+        :none ->
+          with {:ok, text, voice_id, model_id} <- tts_input(type, item),
+               :ok <- mark_running(generation_job_id),
+               :ok <- emit_progress(story_id, type, target_id, generation_job_id, 10),
+               {:ok, audio_bytes, alignment, provider} <- synthesize(text, voice_id, model_id),
+               :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
+               {:ok, audio_filename, timings_filename} <- filenames(type, target_id),
+               {:ok, audio_url} <- Assets.write_binary(story_id, audio_filename, audio_bytes),
+               timings <- WordTimings.from_alignment(text, alignment),
+               {:ok, timings_url} <- Assets.write_json(story_id, timings_filename, timings),
+               {:ok, _} <- persist_urls(story_id, type, target_id, audio_url, timings_url),
+               :ok <- emit_progress(story_id, type, target_id, generation_job_id, 95),
+               :ok <- mark_completed(generation_job_id) do
+            _ = Stories.maybe_mark_story_ready(story_id)
+            broadcast_progress(story_id, type, target_id, generation_job_id, 100)
 
-      {:ok, %{url: audio_url, timings_url: timings_url, provider: provider}}
+            StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+              story_id: story_id,
+              job_type: map_job_type(type),
+              target_id: target_id,
+              job_id: generation_job_id,
+              url: audio_url,
+              timings_url: timings_url
+            })
+
+            {:ok, %{url: audio_url, timings_url: timings_url, provider: provider}}
+          else
+            {:error, reason} ->
+              handle_failure(args, reason)
+          end
+      end
     else
       {:error, reason} ->
         handle_failure(args, reason)
@@ -186,6 +203,44 @@ defmodule Storytime.Workers.TtsGenWorker do
 
   defp persist_urls(_story_id, _type, _target_id, _audio_url, _timings_url),
     do: {:error, :unsupported_tts_type}
+
+  @doc false
+  def existing_audio_urls("dialogue", line) do
+    if blank?(line.audio_url) or blank?(line.timings_url) do
+      :none
+    else
+      {:ok, line.audio_url, line.timings_url}
+    end
+  end
+
+  def existing_audio_urls("narration", page) do
+    if blank?(page.narration_audio_url) or blank?(page.narration_timings_url) do
+      :none
+    else
+      {:ok, page.narration_audio_url, page.narration_timings_url}
+    end
+  end
+
+  def existing_audio_urls(_type, _item), do: :none
+
+  defp complete_from_cached(story_id, type, target_id, generation_job_id, audio_url, timings_url) do
+    with :ok <- mark_completed(generation_job_id) do
+      _ = Stories.maybe_mark_story_ready(story_id)
+      broadcast_progress(story_id, type, target_id, generation_job_id, 100)
+
+      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+        story_id: story_id,
+        job_type: map_job_type(type),
+        target_id: target_id,
+        job_id: generation_job_id,
+        url: audio_url,
+        timings_url: timings_url,
+        reused: true
+      })
+
+      {:ok, %{url: audio_url, timings_url: timings_url, provider: "cached", reused: true}}
+    end
+  end
 
   defp mark_running(job_id), do: status_update(job_id, :running)
   defp mark_completed(job_id), do: status_update(job_id, :completed)
