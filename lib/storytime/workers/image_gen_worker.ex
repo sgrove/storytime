@@ -20,9 +20,12 @@ defmodule Storytime.Workers.ImageGenWorker do
          {:ok, story} <- fetch_story(story_id),
          {:ok, target_prompt, filename} <- prompt_and_filename(story, type, target_id),
          :ok <- mark_running(generation_job_id),
+         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 10),
          {:ok, image_bytes, provider} <- generate_image(target_prompt, image_size(type)),
+         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
          {:ok, asset_url} <- Assets.write_binary(story_id, filename, image_bytes),
          {:ok, _} <- persist_url(story_id, type, target_id, asset_url),
+         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 95),
          :ok <- mark_completed(generation_job_id) do
       _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, type, target_id, generation_job_id, 100)
@@ -98,15 +101,8 @@ defmodule Storytime.Workers.ImageGenWorker do
 
   defp generate_image(prompt, size) do
     case call_openai_image(prompt, size) do
-      {:ok, bytes} ->
-        {:ok, bytes, "openai"}
-
-      {:error, _reason} = error ->
-        if fallback_enabled?() do
-          {:ok, Assets.tiny_png(), "fallback"}
-        else
-          error
-        end
+      {:ok, bytes} -> {:ok, bytes, "openai"}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -196,10 +192,6 @@ defmodule Storytime.Workers.ImageGenWorker do
     end
   end
 
-  defp fallback_enabled? do
-    String.downcase(System.get_env("GENERATION_FALLBACK", "true")) in ["1", "true", "yes"]
-  end
-
   defp blank?(value), do: value in [nil, ""]
 
   defp broadcast_progress(story_id, type, target_id, job_id, progress) do
@@ -210,5 +202,10 @@ defmodule Storytime.Workers.ImageGenWorker do
       job_id: job_id,
       progress: progress
     })
+  end
+
+  defp emit_progress(story_id, type, target_id, job_id, progress) do
+    broadcast_progress(story_id, type, target_id, job_id, progress)
+    :ok
   end
 end

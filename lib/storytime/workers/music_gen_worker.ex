@@ -8,8 +8,6 @@ defmodule Storytime.Workers.MusicGenWorker do
   alias Storytime.Assets
   alias Storytime.Stories
 
-  @openai_speech_url "https://api.openai.com/v1/audio/speech"
-
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     with {:ok, generation_job_id} <- required_arg(args, "generation_job_id"),
@@ -18,9 +16,12 @@ defmodule Storytime.Workers.MusicGenWorker do
          {:ok, story} <- fetch_story(story_id),
          {:ok, track} <- find_track(story, target_id),
          :ok <- mark_running(generation_job_id),
+         :ok <- emit_progress(story_id, target_id, generation_job_id, 10),
          {:ok, audio_bytes, provider} <- generate_music(track),
+         :ok <- emit_progress(story_id, target_id, generation_job_id, 75),
          {:ok, asset_url} <- Assets.write_binary(story_id, "music_#{target_id}.mp3", audio_bytes),
          {:ok, _} <- Stories.set_music_audio(story_id, target_id, asset_url),
+         :ok <- emit_progress(story_id, target_id, generation_job_id, 95),
          :ok <- mark_completed(generation_job_id) do
       _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, target_id, generation_job_id, 100)
@@ -61,7 +62,7 @@ defmodule Storytime.Workers.MusicGenWorker do
 
     case maybe_sonauto(prompt) do
       {:ok, bytes} -> {:ok, bytes, "sonauto"}
-      {:error, _} -> fallback_speech(prompt)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -131,37 +132,6 @@ defmodule Storytime.Workers.MusicGenWorker do
     end
   end
 
-  defp fallback_speech(prompt) do
-    api_key = System.get_env("OPENAI_API_KEY")
-
-    if blank?(api_key) do
-      {:error, :missing_openai_api_key}
-    else
-      headers = [
-        {"authorization", "Bearer #{api_key}"},
-        {"content-type", "application/json"}
-      ]
-
-      body = %{
-        model: "gpt-4o-mini-tts",
-        voice: "alloy",
-        input: prompt,
-        format: "mp3"
-      }
-
-      case Req.post(@openai_speech_url, headers: headers, json: body) do
-        {:ok, %{status: 200, body: audio_bytes}} when is_binary(audio_bytes) ->
-          {:ok, audio_bytes, "openai_tts_fallback"}
-
-        {:ok, %{status: status, body: body}} ->
-          {:error, {:openai_speech_error, status, body}}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
-  end
-
   defp mark_running(job_id), do: status_update(job_id, :running)
   defp mark_completed(job_id), do: status_update(job_id, :completed)
 
@@ -211,5 +181,10 @@ defmodule Storytime.Workers.MusicGenWorker do
       job_id: job_id,
       progress: progress
     })
+  end
+
+  defp emit_progress(story_id, target_id, job_id, progress) do
+    broadcast_progress(story_id, target_id, job_id, progress)
+    :ok
   end
 end

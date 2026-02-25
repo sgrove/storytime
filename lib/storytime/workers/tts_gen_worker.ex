@@ -10,7 +10,6 @@ defmodule Storytime.Workers.TtsGenWorker do
   alias Storytime.WordTimings
 
   @elevenlabs_base "https://api.elevenlabs.io/v1/text-to-speech"
-  @openai_speech_url "https://api.openai.com/v1/audio/speech"
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -22,12 +21,15 @@ defmodule Storytime.Workers.TtsGenWorker do
          {:ok, item} <- fetch_target(story, type, target_id),
          {:ok, text, voice_id, model_id} <- tts_input(type, item),
          :ok <- mark_running(generation_job_id),
+         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 10),
          {:ok, audio_bytes, alignment, provider} <- synthesize(text, voice_id, model_id),
+         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
          {:ok, audio_filename, timings_filename} <- filenames(type, target_id),
          {:ok, audio_url} <- Assets.write_binary(story_id, audio_filename, audio_bytes),
          timings <- WordTimings.from_alignment(text, alignment),
          {:ok, timings_url} <- Assets.write_json(story_id, timings_filename, timings),
          {:ok, _} <- persist_urls(story_id, type, target_id, audio_url, timings_url),
+         :ok <- emit_progress(story_id, type, target_id, generation_job_id, 95),
          :ok <- mark_completed(generation_job_id) do
       _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, type, target_id, generation_job_id, 100)
@@ -114,11 +116,9 @@ defmodule Storytime.Workers.TtsGenWorker do
   defp filenames(_type, _target_id), do: {:error, :unsupported_tts_type}
 
   defp synthesize(text, voice_id, model_id) do
-    with {:error, _} <- maybe_elevenlabs(text, voice_id, model_id),
-         {:ok, audio_bytes} <- openai_speech(text) do
-      {:ok, audio_bytes, nil, "openai_tts"}
+    with {:ok, audio_bytes, alignment} <- maybe_elevenlabs(text, voice_id, model_id) do
+      {:ok, audio_bytes, alignment, "elevenlabs"}
     else
-      {:ok, audio_bytes, alignment} -> {:ok, audio_bytes, alignment, "elevenlabs"}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -173,32 +173,6 @@ defmodule Storytime.Workers.TtsGenWorker do
               {:error, reason}
           end
         end
-    end
-  end
-
-  defp openai_speech(text) do
-    api_key = System.get_env("OPENAI_API_KEY")
-
-    if blank?(api_key) do
-      {:error, :missing_openai_api_key}
-    else
-      headers = [
-        {"authorization", "Bearer #{api_key}"},
-        {"content-type", "application/json"}
-      ]
-
-      body = %{
-        model: "gpt-4o-mini-tts",
-        voice: "alloy",
-        input: text,
-        format: "mp3"
-      }
-
-      case Req.post(@openai_speech_url, headers: headers, json: body) do
-        {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
-        {:ok, %{status: status, body: body}} -> {:error, {:openai_speech_error, status, body}}
-        {:error, reason} -> {:error, reason}
-      end
     end
   end
 
@@ -267,5 +241,10 @@ defmodule Storytime.Workers.TtsGenWorker do
       job_id: job_id,
       progress: progress
     })
+  end
+
+  defp emit_progress(story_id, type, target_id, job_id, progress) do
+    broadcast_progress(story_id, type, target_id, job_id, progress)
+    :ok
   end
 end
