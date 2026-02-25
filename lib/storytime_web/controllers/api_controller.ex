@@ -1,6 +1,7 @@
 defmodule StorytimeWeb.ApiController do
   use StorytimeWeb, :controller
 
+  alias Storytime.Assets
   alias Storytime.Stories
   alias Storytime.JobDiagnostics
   alias Storytime.StoryPack
@@ -138,8 +139,10 @@ defmodule StorytimeWeb.ApiController do
   def voice_preview(conn, params) do
     provider = Map.get(params, "provider", "elevenlabs")
     text = Map.get(params, "text", "") |> to_string() |> String.trim()
-    voice_id = Map.get(params, "voice_id")
+    voice_id = optional_id(Map.get(params, "voice_id"))
     model_id = Map.get(params, "model_id")
+    story_id = optional_id(Map.get(params, "story_id"))
+    character_id = optional_id(Map.get(params, "character_id"))
 
     cond do
       provider != "elevenlabs" ->
@@ -147,7 +150,7 @@ defmodule StorytimeWeb.ApiController do
         |> put_status(:bad_request)
         |> json(%{error: "unsupported_voice_provider"})
 
-      not (is_binary(voice_id) and String.trim(voice_id) != "") ->
+      is_nil(voice_id) ->
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{error: "missing_voice_id"})
@@ -157,15 +160,23 @@ defmodule StorytimeWeb.ApiController do
         |> put_status(:unprocessable_entity)
         |> json(%{error: "missing_preview_text"})
 
+      xor_present?(story_id, character_id) ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "story_id_and_character_id_must_be_provided_together"})
+
       true ->
         with {:ok, voices} <- elevenlabs_voices(),
              true <- Enum.any?(voices, &(&1.id == voice_id)),
-             {:ok, audio_b64} <- elevenlabs_preview_audio(voice_id, text, model_id) do
+             {:ok, audio_bytes, audio_b64} <- elevenlabs_preview_audio(voice_id, text, model_id),
+             {:ok, persisted_url} <-
+               maybe_persist_voice_preview(story_id, character_id, audio_bytes) do
           json(conn, %{
             provider: "elevenlabs",
             voice_id: voice_id,
             model_id: model_id || "eleven_multilingual_v2",
             text: text,
+            audio_url: persisted_url,
             audio_data_url: "data:audio/mpeg;base64,#{audio_b64}"
           })
         else
@@ -173,6 +184,16 @@ defmodule StorytimeWeb.ApiController do
             conn
             |> put_status(:unprocessable_entity)
             |> json(%{error: "invalid_voice_id"})
+
+          {:error, :character_not_found} ->
+            conn
+            |> put_status(:not_found)
+            |> json(%{error: "character_not_found"})
+
+          {:error, :database_unavailable} ->
+            conn
+            |> put_status(:service_unavailable)
+            |> json(%{error: "database_unavailable"})
 
           {:error, :missing_elevenlabs_api_key} ->
             conn
@@ -228,6 +249,7 @@ defmodule StorytimeWeb.ApiController do
             voice_id: c.voice_id,
             voice_model_id: c.voice_model_id,
             headshot_url: c.headshot_url,
+            voice_preview_url: c.voice_preview_url,
             sort_order: c.sort_order
           }
         end),
@@ -360,7 +382,10 @@ defmodule StorytimeWeb.ApiController do
 
       case Req.post(url, headers: headers, json: body) do
         {:ok, %{status: 200, body: %{"audio_base64" => audio_b64}}} when is_binary(audio_b64) ->
-          {:ok, audio_b64}
+          case Base.decode64(audio_b64) do
+            {:ok, audio_bytes} -> {:ok, audio_bytes, audio_b64}
+            :error -> {:error, :invalid_audio_payload}
+          end
 
         {:ok, %{status: status, body: body}} ->
           {:error, {:elevenlabs_error, status, body}}
@@ -370,4 +395,40 @@ defmodule StorytimeWeb.ApiController do
       end
     end
   end
+
+  defp maybe_persist_voice_preview(nil, nil, _audio_bytes), do: {:ok, nil}
+
+  defp maybe_persist_voice_preview(story_id, character_id, audio_bytes)
+       when is_binary(story_id) and story_id != "" and is_binary(character_id) and
+              character_id != "" do
+    if Stories.repo_running?() do
+      filename = "voice_preview_#{character_id}.mp3"
+
+      with {:ok, asset_url} <- Assets.write_binary(story_id, filename, audio_bytes),
+           {:ok, _character} <-
+             Stories.set_character_voice_preview(story_id, character_id, asset_url) do
+        {:ok, asset_url}
+      else
+        {:error, :not_found} -> {:error, :character_not_found}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :database_unavailable}
+    end
+  end
+
+  defp maybe_persist_voice_preview(_story_id, _character_id, _audio_bytes),
+    do: {:error, :character_not_found}
+
+  defp xor_present?(a, b), do: present?(a) != present?(b)
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
+
+  defp optional_id(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp optional_id(_value), do: nil
 end

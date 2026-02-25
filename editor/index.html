@@ -457,16 +457,25 @@
             method: "POST",
             body: JSON.stringify({
               provider: "elevenlabs",
+              story_id: state.currentStory?.id,
+              character_id: character.id,
               voice_id: selectedVoiceId,
               model_id: character.voice_model_id || "eleven_multilingual_v2",
               text
             })
           });
 
+          const resolvedUrl = payload.audio_url ? assetUrl(payload.audio_url) : payload.audio_data_url;
+
+          if (payload.audio_url && state.currentStory?.characters) {
+            const target = state.currentStory.characters.find((entry) => entry.id === character.id);
+            if (target) target.voice_preview_url = payload.audio_url;
+          }
+
           state.characterVoicePreview[characterId] = {
             status: "ready",
             text,
-            url: payload.audio_data_url
+            url: resolvedUrl
           };
         } catch (err) {
           state.characterVoicePreview[characterId] = {
@@ -784,6 +793,7 @@
           const selectedVoice = voiceById(c.voice_id);
           const preview = state.characterVoicePreview[c.id] || null;
           const previewStatus = preview ? preview.status : "";
+          const previewUrl = preview?.url || (c.voice_preview_url ? assetUrl(c.voice_preview_url) : "");
           const defaultPreviewText = `Hello, my name is ${c.name || "friend"}. I'm so happy to meet you!`;
 
           return `
@@ -807,7 +817,7 @@
                 <button class="btn" data-action="preview-character-voice" data-id="${c.id}" ${selectedVoice ? "" : "disabled"}>${previewStatus === "loading" ? "Generating Preview..." : "Generate Voice Preview"}</button>
               </div>
               ${previewStatus === "error" ? `<div class="hint" style="color:#872d1a;margin-top:6px;">${esc(preview.error || "preview_failed")}</div>` : ""}
-              ${preview?.url ? `<audio controls src="${esc(preview.url)}" style="width:100%;margin-top:8px;"></audio>` : ""}
+              ${previewUrl ? `<audio controls src="${esc(previewUrl)}" style="width:100%;margin-top:8px;"></audio>` : ""}
             </div>
             <div class="actions">
               <button class="btn" data-action="save-character" data-id="${c.id}">Save</button>

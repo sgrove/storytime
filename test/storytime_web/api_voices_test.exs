@@ -68,6 +68,27 @@ defmodule StorytimeWeb.ApiVoicesTest do
     assert %{"error" => "missing_preview_text"} = Jason.decode!(conn.resp_body)
   end
 
+  test "voice preview requires story_id and character_id together when persisting" do
+    conn =
+      conn(
+        :post,
+        "/api/voices/preview",
+        Jason.encode!(%{
+          "provider" => "elevenlabs",
+          "voice_id" => "voice_123",
+          "text" => "hello there",
+          "story_id" => "story-1"
+        })
+      )
+      |> put_req_header("content-type", "application/json")
+      |> @endpoint.call(@endpoint.init([]))
+
+    assert conn.status == 422
+
+    assert %{"error" => "story_id_and_character_id_must_be_provided_together"} =
+             Jason.decode!(conn.resp_body)
+  end
+
   test "voice preview returns unavailable when key missing" do
     previous = System.get_env("ELEVENLABS_API_KEY")
     System.delete_env("ELEVENLABS_API_KEY")

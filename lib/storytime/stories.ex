@@ -465,6 +465,10 @@ defmodule Storytime.Stories do
     update_character(story_id, character_id, %{headshot_url: headshot_url})
   end
 
+  def set_character_voice_preview(story_id, character_id, voice_preview_url) do
+    update_character(story_id, character_id, %{voice_preview_url: voice_preview_url})
+  end
+
   def set_page_scene(story_id, page_id, scene_image_url) do
     update_page(story_id, page_id, %{scene_image_url: scene_image_url})
   end
@@ -654,6 +658,7 @@ defmodule Storytime.Stories do
       "voice_id" -> :voice_id
       "voice_model_id" -> :voice_model_id
       "headshot_url" -> :headshot_url
+      "voice_preview_url" -> :voice_preview_url
       "sort_order" -> :sort_order
       "page_id" -> :page_id
       "page_index" -> :page_index

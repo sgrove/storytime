@@ -6,15 +6,16 @@ defmodule Storytime.Stories.Character do
   @foreign_key_type :binary_id
 
   schema "characters" do
-    field :name, :string
-    field :visual_description, :string
-    field :voice_provider, :string
-    field :voice_id, :string
-    field :voice_model_id, :string
-    field :headshot_url, :string
-    field :sort_order, :integer, default: 0
+    field(:name, :string)
+    field(:visual_description, :string)
+    field(:voice_provider, :string)
+    field(:voice_id, :string)
+    field(:voice_model_id, :string)
+    field(:headshot_url, :string)
+    field(:voice_preview_url, :string)
+    field(:sort_order, :integer, default: 0)
 
-    belongs_to :story, Storytime.Stories.Story
+    belongs_to(:story, Storytime.Stories.Story)
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -29,6 +30,7 @@ defmodule Storytime.Stories.Character do
       :voice_id,
       :voice_model_id,
       :headshot_url,
+      :voice_preview_url,
       :sort_order
     ])
     |> validate_required([:story_id, :name])

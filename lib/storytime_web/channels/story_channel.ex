@@ -426,6 +426,7 @@ defmodule StorytimeWeb.StoryChannel do
       voice_id: character.voice_id,
       voice_model_id: character.voice_model_id,
       headshot_url: character.headshot_url,
+      voice_preview_url: character.voice_preview_url,
       sort_order: character.sort_order
     }
   end
