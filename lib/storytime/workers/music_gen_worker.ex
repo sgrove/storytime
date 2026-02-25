@@ -1,12 +1,17 @@
 defmodule Storytime.Workers.MusicGenWorker do
   @moduledoc """
-  Generates background music via Sonauto with fallback synthesis.
+  Generates background music via Sonauto.
   """
 
   use Oban.Worker, queue: :generation, max_attempts: 5
 
   alias Storytime.Assets
   alias Storytime.Stories
+
+  @sonauto_api_base_default "https://api.sonauto.ai/v1"
+  @sonauto_poll_attempts_default 40
+  @sonauto_poll_sleep_ms_default 3_000
+  @sonauto_request_timeout_ms_default 180_000
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -42,11 +47,11 @@ defmodule Storytime.Workers.MusicGenWorker do
 
             {:ok, %{url: asset_url, provider: provider}}
           else
-            {:error, reason} -> handle_failure(args, reason)
+            {:error, reason} -> resolve_failure(args, reason)
           end
       end
     else
-      {:error, reason} -> handle_failure(args, reason)
+      {:error, reason} -> resolve_failure(args, reason)
     end
   end
 
@@ -82,21 +87,46 @@ defmodule Storytime.Workers.MusicGenWorker do
     if blank?(api_key) do
       {:error, :missing_sonauto_api_key}
     else
-      base = System.get_env("SONAUTO_API_BASE") || "https://api.sonauto.ai/v1"
+      base = sonauto_api_base()
 
       headers = [
         {"authorization", "Bearer #{api_key}"},
-        {"content-type", "application/json"}
+        {"content-type", "application/json"},
+        {"accept", "application/json"}
       ]
 
-      create_body = %{prompt: prompt, duration_seconds: 20}
+      create_payload = %{
+        prompt: prompt,
+        tags: sonauto_tags(prompt),
+        instrumental: true,
+        output_format: "mp3"
+      }
 
-      with {:ok, %{status: status, body: create_body}} when status in [200, 201] <-
-             Req.post("#{base}/create", headers: headers, json: create_body),
+      with {:ok, %{status: status, body: create_body}} when status in [200, 201, 202] <-
+             Req.post("#{base}/generations",
+               headers: headers,
+               json: create_payload,
+               receive_timeout: sonauto_request_timeout_ms(),
+               pool_timeout: sonauto_request_timeout_ms(),
+               connect_options: [timeout: 30_000],
+               retry: false
+             ),
            task_id when is_binary(task_id) <- extract_task_id(create_body),
-           {:ok, audio_url} <- poll_sonauto_audio_url(base, headers, task_id, 10),
+           {:ok, audio_url} <-
+             poll_sonauto_audio_url(
+               base,
+               headers,
+               task_id,
+               sonauto_poll_attempts(),
+               sonauto_poll_sleep_ms()
+             ),
            {:ok, %{status: 200, body: audio_bytes}} when is_binary(audio_bytes) <-
-             Req.get(audio_url) do
+             Req.get(audio_url,
+               receive_timeout: sonauto_request_timeout_ms(),
+               pool_timeout: sonauto_request_timeout_ms(),
+               connect_options: [timeout: 30_000],
+               retry: false
+             ) do
         {:ok, audio_bytes}
       else
         {:ok, %{status: status, body: body}} -> {:error, {:sonauto_error, status, body}}
@@ -106,32 +136,51 @@ defmodule Storytime.Workers.MusicGenWorker do
     end
   end
 
-  defp extract_task_id(body) when is_map(body) do
+  @doc false
+  def extract_task_id(body) when is_map(body) do
     body["id"] || body["task_id"] || body["job_id"]
   end
 
-  defp extract_task_id(_), do: nil
+  def extract_task_id(_), do: nil
 
-  defp poll_sonauto_audio_url(_base, _headers, _task_id, 0), do: {:error, :sonauto_timeout}
+  @doc false
+  def extract_audio_url(body) when is_map(body) do
+    body["song_path"] || body["audio_url"] || body["url"] || body["download_url"]
+  end
 
-  defp poll_sonauto_audio_url(base, headers, task_id, attempts_left) do
-    status_url = "#{base}/create/#{task_id}"
+  def extract_audio_url(_), do: nil
 
-    case Req.get(status_url, headers: headers) do
+  defp poll_sonauto_audio_url(_base, _headers, _task_id, 0, _sleep_ms),
+    do: {:error, :sonauto_timeout}
+
+  defp poll_sonauto_audio_url(base, headers, task_id, attempts_left, sleep_ms) do
+    status_url = "#{base}/generations/#{task_id}"
+
+    case Req.get(status_url,
+           headers: headers,
+           receive_timeout: sonauto_request_timeout_ms(),
+           pool_timeout: sonauto_request_timeout_ms(),
+           connect_options: [timeout: 30_000],
+           retry: false
+         ) do
       {:ok, %{status: 200, body: body}} ->
+        audio_url = extract_audio_url(body)
+        status = normalize_task_status(body["status"])
+
         cond do
-          is_binary(body["audio_url"]) ->
-            {:ok, body["audio_url"]}
+          is_binary(audio_url) and audio_url != "" ->
+            {:ok, normalize_audio_url(base, audio_url)}
 
-          is_binary(body["url"]) ->
-            {:ok, body["url"]}
-
-          body["status"] in ["failed", "error"] ->
+          status == :failed ->
             {:error, {:sonauto_failed, body}}
 
+          status == :pending ->
+            Process.sleep(sleep_ms)
+            poll_sonauto_audio_url(base, headers, task_id, attempts_left - 1, sleep_ms)
+
           true ->
-            Process.sleep(1500)
-            poll_sonauto_audio_url(base, headers, task_id, attempts_left - 1)
+            Process.sleep(sleep_ms)
+            poll_sonauto_audio_url(base, headers, task_id, attempts_left - 1, sleep_ms)
         end
 
       {:ok, %{status: status, body: body}} ->
@@ -141,6 +190,84 @@ defmodule Storytime.Workers.MusicGenWorker do
         {:error, reason}
     end
   end
+
+  defp normalize_audio_url(_base, url) when not is_binary(url), do: nil
+
+  defp normalize_audio_url(base, url) do
+    cond do
+      String.starts_with?(url, "http://") or String.starts_with?(url, "https://") ->
+        url
+
+      String.starts_with?(url, "/") ->
+        URI.merge(base, url) |> to_string()
+
+      true ->
+        url
+    end
+  end
+
+  defp sonauto_api_base, do: System.get_env("SONAUTO_API_BASE") || @sonauto_api_base_default
+
+  defp sonauto_tags(prompt) do
+    base_tags = ["children", "instrumental", "background", "storybook"]
+
+    mood_tags =
+      prompt
+      |> String.downcase()
+      |> String.split(~r/[^a-z0-9]+/, trim: true)
+      |> Enum.filter(
+        &(&1 in ["calm", "gentle", "mysterious", "happy", "sad", "adventure", "peaceful"])
+      )
+      |> Enum.uniq()
+
+    Enum.uniq(base_tags ++ mood_tags)
+  end
+
+  defp sonauto_poll_attempts do
+    timeout_from_env(System.get_env("SONAUTO_POLL_ATTEMPTS"), @sonauto_poll_attempts_default, 5)
+  end
+
+  defp sonauto_poll_sleep_ms do
+    timeout_from_env(System.get_env("SONAUTO_POLL_SLEEP_MS"), @sonauto_poll_sleep_ms_default, 500)
+  end
+
+  defp sonauto_request_timeout_ms do
+    timeout_from_env(
+      System.get_env("SONAUTO_REQUEST_TIMEOUT_MS"),
+      @sonauto_request_timeout_ms_default,
+      30_000
+    )
+  end
+
+  defp timeout_from_env(raw_value, default_value, min_value) when is_binary(raw_value) do
+    case Integer.parse(String.trim(raw_value)) do
+      {value, ""} when value >= min_value -> value
+      _ -> default_value
+    end
+  end
+
+  defp timeout_from_env(_raw_value, default_value, _min_value), do: default_value
+
+  @doc false
+  def normalize_task_status(status) when is_binary(status) do
+    normalized = String.downcase(String.trim(status))
+
+    cond do
+      normalized in ["complete", "completed", "succeeded", "done"] ->
+        :complete
+
+      normalized in ["failed", "error", "cancelled", "canceled"] ->
+        :failed
+
+      normalized in ["processing", "queued", "pending", "running", "in_progress", "started"] ->
+        :pending
+
+      true ->
+        :pending
+    end
+  end
+
+  def normalize_task_status(_), do: :pending
 
   @doc false
   def existing_track_audio(track) do
@@ -174,6 +301,27 @@ defmodule Storytime.Workers.MusicGenWorker do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp resolve_failure(args, reason) do
+    _ = handle_failure(args, reason)
+
+    if non_retryable_reason?(reason) do
+      {:discard, reason}
+    else
+      {:error, reason}
+    end
+  end
+
+  @doc false
+  def non_retryable_reason?(:missing_sonauto_api_key), do: true
+  def non_retryable_reason?(:story_not_found), do: true
+  def non_retryable_reason?(:track_not_found), do: true
+  def non_retryable_reason?(:sonauto_unexpected_response), do: true
+  def non_retryable_reason?({:missing_arg, _}), do: true
+  def non_retryable_reason?({:sonauto_error, status, _}) when status in 400..499, do: true
+  def non_retryable_reason?({:sonauto_poll_error, status, _}) when status in 400..499, do: true
+  def non_retryable_reason?({:sonauto_failed, _}), do: true
+  def non_retryable_reason?(_), do: false
 
   defp handle_failure(args, reason) do
     generation_job_id = Map.get(args, "generation_job_id")
