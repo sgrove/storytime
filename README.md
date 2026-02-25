@@ -18,6 +18,11 @@ Current live milestone includes:
 - Editor voice preview + strict voice selection UX
 - Reader playback/collaboration runtime with host follow + stale peer cleanup
 
+## Reader StoryPack Source Modes
+
+- Template reader deployments can allow StoryPack override (`allowPackOverride: true`) so operators can load a pack via `?pack=<url>` or the in-app Story Source panel.
+- Per-story standalone reader deployments are locked (`allowPackOverride: false`) and remain pinned to the configured `packUrl`.
+
 ## GitHub -> Render CD
 
 This repo now includes `.github/workflows/render-cd.yml` to automate deploys on every push to `main`:

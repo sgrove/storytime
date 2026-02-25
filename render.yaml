@@ -53,7 +53,7 @@ services:
     name: storytime-reader-template
     runtime: static
     buildCommand: |
-      printf "{\"apiBase\":\"%s\",\"storyId\":\"%s\",\"storySlug\":\"%s\",\"packUrl\":\"%s\",\"instantAppId\":\"%s\"}\n" "$VITE_API_HTTP_URL" "$VITE_STORY_ID" "$VITE_STORY_SLUG" "$VITE_STORY_PACK_URL" "$VITE_INSTANT_APP_ID" > reader/runtime-config.json
+      printf "{\"apiBase\":\"%s\",\"storyId\":\"%s\",\"storySlug\":\"%s\",\"packUrl\":\"%s\",\"instantAppId\":\"%s\",\"allowPackOverride\":%s}\n" "$VITE_API_HTTP_URL" "$VITE_STORY_ID" "$VITE_STORY_SLUG" "$VITE_STORY_PACK_URL" "$VITE_INSTANT_APP_ID" "${VITE_READER_ALLOW_PACK_OVERRIDE:-true}" > reader/runtime-config.json
     staticPublishPath: reader
     envVars:
       - key: VITE_API_HTTP_URL
@@ -66,6 +66,8 @@ services:
         value: https://storytime-api-091733.onrender.com/api/stories/demo/pack
       - key: VITE_INSTANT_APP_ID
         sync: false
+      - key: VITE_READER_ALLOW_PACK_OVERRIDE
+        value: "true"
     routes:
       - type: rewrite
         source: /*

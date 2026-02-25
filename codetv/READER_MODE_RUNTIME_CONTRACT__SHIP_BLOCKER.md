@@ -29,7 +29,8 @@ Reader runtime MUST load `/runtime-config.json` with:
   "storyId": "uuid-or-slug-id",
   "storySlug": "story-slug",
   "packUrl": "https://storytime-api-<id>.onrender.com/api/stories/<id>/pack",
-  "instantAppId": "instant-app-id"
+  "instantAppId": "instant-app-id",
+  "allowPackOverride": true
 }
 ```
 
@@ -40,6 +41,11 @@ Resolution order is strict:
 3. Derive `storySlug` from hostname when possible (`storytime-<slug>.*`)
 
 If no StoryPack URL can be resolved, reader MUST enter `reader.error.invalid`.
+
+`allowPackOverride` semantics:
+
+- `true` (template/debug mode): reader MAY accept `?pack=...` and expose StoryPack URL input UI.
+- `false` (standalone deployed story site): reader MUST ignore `?pack`, `?story_id`, `?story_slug` and stay coupled to deployed `packUrl`.
 
 ## 3. StoryPack Contract
 
@@ -235,4 +241,3 @@ This contract maps directly to:
 - AC-011 deploy success path
 - AC-012 deploy failure visibility
 - AC-015 SPA routing
-

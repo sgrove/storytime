@@ -286,7 +286,8 @@ defmodule Storytime.Deploy.RenderDeploy do
       %{"key" => "VITE_STORY_ID", "value" => story.id},
       %{"key" => "VITE_STORY_SLUG", "value" => story.slug},
       %{"key" => "VITE_STORY_PACK_URL", "value" => "#{base_url}/api/stories/#{story.id}/pack"},
-      %{"key" => "VITE_INSTANT_APP_ID", "value" => System.get_env("INSTANT_APP_ID") || ""}
+      %{"key" => "VITE_INSTANT_APP_ID", "value" => System.get_env("INSTANT_APP_ID") || ""},
+      %{"key" => "VITE_READER_ALLOW_PACK_OVERRIDE", "value" => "false"}
     ]
   end
 
@@ -299,6 +300,6 @@ defmodule Storytime.Deploy.RenderDeploy do
   end
 
   defp runtime_config_build_command do
-    ~s|bash -lc 'printf "{\\"apiBase\\":\\"%s\\",\\"storyId\\":\\"%s\\",\\"storySlug\\":\\"%s\\",\\"packUrl\\":\\"%s\\",\\"instantAppId\\":\\"%s\\"}\\n" "$VITE_API_HTTP_URL" "$VITE_STORY_ID" "$VITE_STORY_SLUG" "$VITE_STORY_PACK_URL" "$VITE_INSTANT_APP_ID" > reader/runtime-config.json'|
+    ~s|bash -lc 'printf "{\\"apiBase\\":\\"%s\\",\\"storyId\\":\\"%s\\",\\"storySlug\\":\\"%s\\",\\"packUrl\\":\\"%s\\",\\"instantAppId\\":\\"%s\\",\\"allowPackOverride\\":%s}\\n" "$VITE_API_HTTP_URL" "$VITE_STORY_ID" "$VITE_STORY_SLUG" "$VITE_STORY_PACK_URL" "$VITE_INSTANT_APP_ID" "${VITE_READER_ALLOW_PACK_OVERRIDE:-false}" > reader/runtime-config.json'|
   end
 end

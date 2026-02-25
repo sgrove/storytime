@@ -88,6 +88,17 @@
           <div class="presence-list" id="presenceList"></div>
         </section>
 
+        <section class="sidebar-card" id="packConfigCard" hidden>
+          <h2>Story Source</h2>
+          <div class="info">Paste StoryPack URL, then load.</div>
+          <input class="text-input" id="packUrlInput" type="text" placeholder="https://.../api/stories/<id>/pack" />
+          <div class="row">
+            <button class="stone-btn" data-action="apply-pack-url">Load Pack URL</button>
+            <button class="stone-btn" data-action="clear-pack-url">Clear URL</button>
+          </div>
+          <div class="info" id="packConfigStatus"></div>
+        </section>
+
         <section class="sidebar-card">
           <h2>Runtime</h2>
           <div class="info" id="runtimeErrorLabel"></div>

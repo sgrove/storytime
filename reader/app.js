@@ -35,6 +35,9 @@ const dom = {
   collabPill: document.getElementById('collabPill'),
   collabStatus: document.getElementById('collabStatus'),
   presenceList: document.getElementById('presenceList'),
+  packConfigCard: document.getElementById('packConfigCard'),
+  packUrlInput: document.getElementById('packUrlInput'),
+  packConfigStatus: document.getElementById('packConfigStatus'),
   voiceVolume: document.getElementById('voiceVolume'),
   musicVolume: document.getElementById('musicVolume'),
   errorScreen: document.getElementById('errorScreen'),
@@ -131,6 +134,27 @@ function text(value) {
 }
 
 /**
+ * @param {unknown} value
+ * @param {boolean} fallback
+ * @returns {boolean}
+ */
+function parseBoolean(value, fallback) {
+  if (typeof value === 'boolean') return value;
+
+  const normalized = text(value).trim().toLowerCase();
+
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+
+  if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+
+  return fallback;
+}
+
+/**
  * @param {number} value
  * @returns {number}
  */
@@ -173,7 +197,7 @@ function inferSlugFromHostname(value) {
  * Resolves runtime config from query params and runtime-config.json.
  * Spec source: FR-048 / Reader runtime contract (2026-02-25).
  *
- * @returns {Promise<{ apiBase: string, storyId: string, storySlug: string, packUrl: string, instantAppId: string }>}
+ * @returns {Promise<{ apiBase: string, storyId: string, storySlug: string, packUrl: string, instantAppId: string, allowPackOverride: boolean }>}
  */
 async function loadRuntimeConfig() {
   const query = new URLSearchParams(window.location.search);
@@ -193,15 +217,29 @@ async function loadRuntimeConfig() {
     text(fileConfig.apiBase) ||
     'https://storytime-api-091733.onrender.com';
 
+  const allowPackOverride = (() => {
+    const queryValue = query.get('allow_pack_override');
+    if (queryValue != null) {
+      return parseBoolean(queryValue, true);
+    }
+
+    return parseBoolean(fileConfig.allowPackOverride, true);
+  })();
+
+  const queryStoryId = allowPackOverride ? query.get('story_id') : null;
+  const queryStorySlug = allowPackOverride ? query.get('story_slug') : null;
+  const queryPackUrl = allowPackOverride ? query.get('pack') : null;
+
   return {
     apiBase: apiBase.replace(/\/$/, ''),
-    storyId: query.get('story_id') || text(fileConfig.storyId) || '',
+    storyId: queryStoryId || text(fileConfig.storyId) || '',
     storySlug:
-      query.get('story_slug') ||
+      queryStorySlug ||
       text(fileConfig.storySlug) ||
       inferSlugFromHostname(window.location.hostname),
-    packUrl: query.get('pack') || text(fileConfig.packUrl) || '',
-    instantAppId: query.get('instant') || text(fileConfig.instantAppId) || ''
+    packUrl: queryPackUrl || text(fileConfig.packUrl) || '',
+    instantAppId: query.get('instant') || text(fileConfig.instantAppId) || '',
+    allowPackOverride
   };
 }
 
@@ -286,6 +324,70 @@ function clearErrorScreen() {
   dom.errorScreen.hidden = true;
   dom.errorScreenTitle.textContent = '';
   dom.errorScreenBody.textContent = '';
+}
+
+/**
+ * @returns {void}
+ */
+function hidePackConfig() {
+  dom.packConfigCard.hidden = true;
+  dom.packConfigStatus.textContent = '';
+}
+
+/**
+ * @param {{ prefill?: string, status?: string }} options
+ * @returns {void}
+ */
+function showPackConfig(options = {}) {
+  dom.packConfigCard.hidden = false;
+
+  if (options.prefill != null) {
+    dom.packUrlInput.value = text(options.prefill);
+  }
+
+  if (options.status != null) {
+    dom.packConfigStatus.textContent = text(options.status);
+  }
+}
+
+/**
+ * @returns {void}
+ */
+function syncPackConfigVisibility() {
+  if (state.runtime.tag !== 'ready') {
+    hidePackConfig();
+    return;
+  }
+
+  if (!state.runtime.config.allowPackOverride) {
+    hidePackConfig();
+    return;
+  }
+
+  showPackConfig({
+    prefill: state.runtime.config.packUrl,
+    status: state.runtime.config.packUrl
+      ? `Using configured pack URL.`
+      : 'No pack URL configured yet.'
+  });
+}
+
+/**
+ * @param {string | null} packUrl
+ * @returns {void}
+ */
+function reloadWithPackQuery(packUrl) {
+  const params = new URLSearchParams(window.location.search);
+
+  if (packUrl && packUrl.trim()) {
+    params.set('pack', packUrl.trim());
+  } else {
+    params.delete('pack');
+  }
+
+  const nextSearch = params.toString();
+  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`;
+  window.location.assign(nextUrl);
 }
 
 /**
@@ -518,13 +620,24 @@ function renderMeta() {
     dom.timingLabel.className = 'status-row success';
   }
 
-  if (state.collab.error) {
-    dom.runtimeErrorLabel.textContent = `Collab: ${state.collab.error}`;
-    dom.runtimeErrorLabel.className = 'info error';
-  } else {
-    dom.runtimeErrorLabel.textContent = '';
-    dom.runtimeErrorLabel.className = 'info';
+  const runtimeMessages = [];
+  let runtimeClass = 'info';
+
+  if (state.runtime.tag === 'ready') {
+    runtimeMessages.push(
+      state.runtime.config.allowPackOverride
+        ? 'Story source override: enabled (?pack=...)'
+        : 'Story source override: locked for this deployment'
+    );
   }
+
+  if (state.collab.error) {
+    runtimeMessages.push(`Collab: ${state.collab.error}`);
+    runtimeClass = 'info error';
+  }
+
+  dom.runtimeErrorLabel.textContent = runtimeMessages.join(' | ');
+  dom.runtimeErrorLabel.className = runtimeClass;
 }
 
 /**
@@ -1449,6 +1562,28 @@ function initUiEvents() {
 
     const action = button.dataset.action;
 
+    if (action === 'apply-pack-url') {
+      if (state.runtime.tag !== 'ready' || !state.runtime.config.allowPackOverride) return;
+
+      const nextPackUrl = text(dom.packUrlInput.value).trim();
+
+      if (!nextPackUrl) {
+        dom.packConfigStatus.textContent = 'Enter a StoryPack URL first.';
+        return;
+      }
+
+      dom.packConfigStatus.textContent = 'Loading StoryPack URL...';
+      reloadWithPackQuery(nextPackUrl);
+      return;
+    }
+
+    if (action === 'clear-pack-url') {
+      if (state.runtime.tag !== 'ready' || !state.runtime.config.allowPackOverride) return;
+      dom.packConfigStatus.textContent = 'Clearing URL override...';
+      reloadWithPackQuery(null);
+      return;
+    }
+
     if (action === 'next-page') {
       setPageIndex(state.nav.pageIndex + 1, { reason: 'manual' });
       return;
@@ -1623,6 +1758,7 @@ function initUiEvents() {
  */
 async function boot() {
   clearErrorScreen();
+  hidePackConfig();
 
   try {
     state.runtime = { tag: 'loading' };
@@ -1631,12 +1767,19 @@ async function boot() {
 
     const runtimeConfig = await loadRuntimeConfig();
     state.runtime = { tag: 'ready', config: runtimeConfig };
+    syncPackConfigVisibility();
 
     const packUrl = resolvePackUrl(runtimeConfig);
 
     if (!packUrl) {
       state.story = { tag: 'error', error: 'missing_story_config' };
       setErrorScreen('Story configuration is incomplete.', 'No StoryPack URL could be resolved from runtime config.');
+      if (runtimeConfig.allowPackOverride) {
+        showPackConfig({
+          prefill: '',
+          status: 'No pack configured. Paste a StoryPack URL to continue.'
+        });
+      }
       renderMeta();
       return;
     }
@@ -1646,7 +1789,13 @@ async function boot() {
     if (!response.ok) {
       const statusText = `story_pack_http_${response.status}`;
       state.story = { tag: 'error', error: statusText };
-      setErrorScreen('Story failed to load.', `Reader could not fetch StoryPack (${response.status}).`);
+      setErrorScreen('Story failed to load.', `Reader could not fetch StoryPack (${response.status}) from ${packUrl}.`);
+      if (runtimeConfig.allowPackOverride) {
+        showPackConfig({
+          prefill: packUrl,
+          status: `Pack fetch failed (${response.status}). Try a different StoryPack URL.`
+        });
+      }
       renderMeta();
       return;
     }
@@ -1657,6 +1806,10 @@ async function boot() {
     state.story = { tag: 'ready', pack, packUrl };
     state.nav = { tag: 'idle', pageIndex: 0 };
     clearErrorScreen();
+    syncPackConfigVisibility();
+    if (runtimeConfig.allowPackOverride) {
+      dom.packConfigStatus.textContent = `Loaded pack: ${packUrl}`;
+    }
     renderAll();
 
     updateMusicForPage();
@@ -1669,6 +1822,12 @@ async function boot() {
     const details = text(error && error.message || error);
     state.story = { tag: 'error', error: details };
     setErrorScreen('Reader runtime failed.', details);
+    if (state.runtime.tag === 'ready' && state.runtime.config.allowPackOverride) {
+      showPackConfig({
+        prefill: resolvePackUrl(state.runtime.config) || '',
+        status: `Runtime error: ${details}. Try a different StoryPack URL.`
+      });
+    }
     renderMeta();
   }
 }

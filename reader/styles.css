@@ -31,6 +31,16 @@ body {
   font-family: "Nunito", "Avenir Next", "Trebuchet MS", sans-serif;
   color: var(--warm-white);
   background:
+    /* vignette */
+    radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.5) 100%),
+    /* subtle firelight warmth at bottom-left */
+    radial-gradient(circle at 5% 92%, rgba(200, 120, 40, 0.08), transparent 30%),
+    /* candle-like warm spots at top edges */
+    radial-gradient(circle at 15% 3%, rgba(230, 180, 80, 0.05), transparent 18%),
+    radial-gradient(circle at 85% 5%, rgba(230, 180, 80, 0.04), transparent 16%),
+    /* warm glow at bottom center */
+    radial-gradient(ellipse at 50% 97%, rgba(201, 162, 39, 0.05), transparent 40%),
+    /* existing atmospheric gradients */
     radial-gradient(circle at 16% 8%, rgba(71, 104, 168, 0.3), transparent 36%),
     radial-gradient(circle at 82% 12%, rgba(108, 87, 155, 0.26), transparent 38%),
     linear-gradient(180deg, var(--deep), var(--void));
@@ -81,8 +91,11 @@ body {
   max-height: calc(100vh - 300px);
   border-radius: 24px;
   overflow: hidden;
-  border: 1px solid rgba(248, 235, 207, 0.38);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
+  border: 2px solid rgba(201, 162, 39, 0.25);
+  box-shadow:
+    0 0 0 1px rgba(245, 227, 192, 0.1),
+    0 28px 80px rgba(0, 0, 0, 0.5),
+    0 0 100px rgba(0, 0, 0, 0.2);
   background: rgba(6, 12, 22, 0.94);
 }
 
@@ -145,8 +158,8 @@ body {
   .glass-panel {
     background: var(--glass-bg);
     color: var(--warm-white);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(20px) saturate(1.3);
+    -webkit-backdrop-filter: blur(20px) saturate(1.3);
   }
 }
 
@@ -195,8 +208,11 @@ body {
 .word.active {
   color: #201003;
   background: linear-gradient(180deg, rgba(239, 197, 110, 0.92), rgba(210, 156, 52, 0.95));
-  border-radius: 8px;
-  padding: 0 2px;
+  border-radius: 6px;
+  padding: 1px 3px;
+  box-shadow:
+    0 0 8px rgba(201, 162, 39, 0.4),
+    0 0 20px rgba(201, 162, 39, 0.15);
 }
 
 .dialogue-list {
@@ -214,8 +230,16 @@ body {
 
 .dialogue-line.active {
   border-color: rgba(241, 200, 116, 0.92);
-  box-shadow: 0 0 0 1px rgba(230, 182, 75, 0.42);
+  box-shadow:
+    0 0 0 1px rgba(230, 182, 75, 0.42),
+    0 0 12px rgba(201, 162, 39, 0.2);
   background: rgba(27, 34, 52, 0.88);
+  animation: glow-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(230, 182, 75, 0.42), 0 0 8px rgba(201, 162, 39, 0.15); }
+  50% { box-shadow: 0 0 0 1px rgba(230, 182, 75, 0.6), 0 0 20px rgba(201, 162, 39, 0.3); }
 }
 
 .dialogue-head {
@@ -318,7 +342,16 @@ body {
   border-radius: 14px;
   border: 1px solid rgba(241, 226, 195, 0.22);
   background: rgba(18, 30, 45, 0.66);
-  padding: 12px;
+  padding: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+  .sidebar-card {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    background: rgba(18, 30, 45, 0.5);
+  }
 }
 
 .sidebar h2 {
@@ -337,6 +370,20 @@ body {
 
 .slider {
   width: 100%;
+}
+
+.text-input {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(240, 223, 184, 0.35);
+  background: rgba(7, 14, 24, 0.72);
+  color: var(--warm-white);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.text-input::placeholder {
+  color: rgba(233, 242, 255, 0.62);
 }
 
 .presence-list {
@@ -441,5 +488,13 @@ body {
 
   .story-meta {
     font-size: 12px;
+  }
+}
+
+/* Accessibility: reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
