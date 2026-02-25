@@ -6,11 +6,11 @@ defmodule Storytime.Application do
   @impl true
   def start(_type, _args) do
     children =
-      [
-        Storytime.PubSub,
-        StorytimeWeb.Endpoint
-      ]
-      |> maybe_add_repo()
+      maybe_add_repo([]) ++
+        [
+          {Phoenix.PubSub, name: Storytime.PubSub},
+          StorytimeWeb.Endpoint
+        ]
 
     opts = [strategy: :one_for_one, name: Storytime.Supervisor]
     Supervisor.start_link(children, opts)
