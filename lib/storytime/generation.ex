@@ -88,19 +88,35 @@ defmodule Storytime.Generation do
     end
   end
 
+  defp jobs_for_request(story_id, :all_dialogue, _target_id) do
+    with story when not is_nil(story) <- Stories.load_story_graph(story_id),
+         true <- has_voiced_characters?(story) do
+      jobs =
+        Enum.flat_map(story.pages, fn page ->
+          if Enum.empty?(page.dialogue_lines || []), do: [{:dialogue, page.id}], else: []
+        end)
+
+      wrap_jobs(jobs)
+    else
+      false -> {:error, :nothing_to_generate}
+      _ -> {:error, :not_found}
+    end
+  end
+
   defp jobs_for_request(story_id, :all, _target_id) do
-    with {:ok, scenes} <- jobs_for_request(story_id, :all_scenes, nil),
-         {:ok, audio} <- jobs_for_request(story_id, :all_audio, nil),
-         story when not is_nil(story) <- Stories.load_story_graph(story_id) do
+    with story when not is_nil(story) <- Stories.load_story_graph(story_id),
+         {:ok, scenes} <- optional_jobs(story_id, :all_scenes),
+         {:ok, dialogue} <- optional_jobs(story_id, :all_dialogue),
+         {:ok, audio} <- optional_jobs(story_id, :all_audio) do
       music =
         Enum.flat_map(story.music_tracks, fn track ->
           if blank?(track.audio_url), do: [{:music, track.id}], else: []
         end)
 
-      wrap_jobs(scenes ++ audio ++ music)
+      wrap_jobs(scenes ++ dialogue ++ audio ++ music)
     else
-      {:error, :nothing_to_generate} -> {:error, :nothing_to_generate}
-      _ -> {:error, :not_found}
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -203,6 +219,18 @@ defmodule Storytime.Generation do
   defp collect_created_jobs([{:error, reason} | _tail], _acc), do: {:error, reason}
 
   defp blank?(value), do: value in [nil, ""]
+
+  defp has_voiced_characters?(story) do
+    Enum.any?(story.characters || [], fn character -> not blank?(character.voice_id) end)
+  end
+
+  defp optional_jobs(story_id, generation_type) do
+    case jobs_for_request(story_id, generation_type, nil) do
+      {:ok, jobs} -> {:ok, jobs}
+      {:error, :nothing_to_generate} -> {:ok, []}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp validate_subdomain(subdomain) when is_binary(subdomain) do
     if Regex.match?(@subdomain_regex, subdomain) do

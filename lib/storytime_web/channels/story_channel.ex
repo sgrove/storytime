@@ -20,6 +20,7 @@ defmodule StorytimeWeb.StoryChannel do
     "generate_scene",
     "generate_all_scenes",
     "generate_dialogue",
+    "generate_all_dialogue",
     "generate_dialogue_audio",
     "generate_all_audio",
     "generate_music",
@@ -268,6 +269,10 @@ defmodule StorytimeWeb.StoryChannel do
   @impl true
   def handle_in("generate_all_scenes", payload, socket),
     do: enqueue_generation(socket, :all_scenes, nil, payload)
+
+  @impl true
+  def handle_in("generate_all_dialogue", payload, socket),
+    do: enqueue_generation(socket, :all_dialogue, nil, payload)
 
   @impl true
   def handle_in("generate_all_audio", payload, socket),

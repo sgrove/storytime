@@ -57,5 +57,6 @@ defmodule StorytimeWeb.StoryChannelContractTest do
   test "extended client event for dialogue generation is declared" do
     declared = StoryChannel.required_client_events() |> MapSet.new()
     assert MapSet.member?(declared, "generate_dialogue")
+    assert MapSet.member?(declared, "generate_all_dialogue")
   end
 end

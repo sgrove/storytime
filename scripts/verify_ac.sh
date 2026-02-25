@@ -36,6 +36,9 @@ check "AC-014 /health returns 200" \
 check "Version endpoint returns commit metadata" \
   "curl -sS \"${API_BASE}/api/version\" | jq -e '.commit | strings | length > 0' >/dev/null"
 
+check "Voices endpoint rejects unsupported provider with 400" \
+  "[[ \"\$(curl -sS -o /dev/null -w \"%{http_code}\" \"${API_BASE}/api/voices/unknown\")\" == \"400\" ]]"
+
 if [[ -z "$STORY_ID" ]]; then
   STORY_ID="$(curl -sS "${API_BASE}/api/stories" | jq -r '.stories[0].id // empty')"
 fi

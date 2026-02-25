@@ -138,6 +138,12 @@
         background: rgba(11, 22, 35, 0.65);
       }
 
+      .line.active-speaker {
+        border-color: rgba(255, 214, 122, 0.9);
+        box-shadow: 0 0 0 1px rgba(255, 214, 122, 0.45);
+        background: rgba(28, 37, 55, 0.92);
+      }
+
       .line-head {
         display: flex;
         justify-content: space-between;
@@ -261,6 +267,8 @@
           <h2>Audio</h2>
           <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn" data-action="play-narration">Narration</button>
+            <button class="btn" data-action="play-page-dialogue">Page Dialogue</button>
+            <button class="btn" data-action="play-narration-dialogue">Narration + Dialogue</button>
             <button class="btn" data-action="pause-voice">Pause</button>
             <button class="btn" data-action="stop-voice">Stop</button>
           </div>
@@ -298,6 +306,7 @@
         pageIndex: 0,
         mode: "read_alone",
         voicePlaying: null,
+        activeLineId: null,
         timingsCache: new Map(),
         currentHighlight: null,
         activeMusicUrl: null,
@@ -381,6 +390,18 @@
         return (state.pack?.pages || [])[state.pageIndex] || null;
       }
 
+      function syncActiveLineStyles() {
+        document.querySelectorAll(".line[data-line-id]").forEach((node) => {
+          const isActive = state.activeLineId && node.dataset.lineId === state.activeLineId;
+          node.classList.toggle("active-speaker", !!isActive);
+        });
+      }
+
+      function setActiveLine(lineId) {
+        state.activeLineId = lineId || null;
+        syncActiveLineStyles();
+      }
+
       function renderPage() {
         const pack = state.pack;
         const page = currentPage();
@@ -401,7 +422,7 @@
         renderNarrationText(page.narration?.text || "");
 
         $("dialogues").innerHTML = (page.dialogue || []).map((line) => `
-          <article class="line" data-line-id="${line.id}">
+          <article class="line ${state.activeLineId === line.id ? "active-speaker" : ""}" data-line-id="${line.id}">
             <div class="line-head">
               <strong>${esc(line.characterName || "Speaker")}</strong>
               <button class="small-btn" data-action="play-line" data-line-id="${line.id}">Play</button>
@@ -409,6 +430,8 @@
             <div id="line-text-${line.id}">${renderWordMarkup(line.text || "")}</div>
           </article>
         `).join("");
+
+        syncActiveLineStyles();
 
         $("pageLabel").textContent = `Page ${state.pageIndex + 1} / ${pack.pages.length}`;
         $("storyTitle").textContent = pack.title || "Storytime Reader";
@@ -418,7 +441,7 @@
         sendPageSync();
 
         if (state.mode === "narrate") {
-          runNarratePageSequence().catch(showError);
+          runNarratePageSequence({ autoAdvance: true }).catch(showError);
         }
       }
 
@@ -482,6 +505,7 @@
         if (!page?.narration?.audioUrl) return;
 
         const container = $("narration");
+        setActiveLine(null);
         await playVoice(page.narration.audioUrl, page.narration.timingsUrl, container);
         state.voicePlaying = { type: "narration", pageIndex: state.pageIndex };
       }
@@ -492,6 +516,7 @@
         if (!line || !line.audioUrl) return;
 
         const container = $(`line-text-${lineId}`);
+        setActiveLine(lineId);
         await playVoice(line.audioUrl, line.timingsUrl, container);
         state.voicePlaying = { type: "dialogue", lineId };
       }
@@ -526,31 +551,55 @@
         });
       }
 
-      async function runNarratePageSequence() {
+      async function runVoiceSequence(opts = {}) {
         const page = currentPage();
         if (!page) return;
+
+        const includeNarration = opts.includeNarration !== false;
+        const includeDialogue = opts.includeDialogue !== false;
+        const autoAdvance = opts.autoAdvance === true;
 
         const token = state.narrateToken + 1;
         state.narrateToken = token;
 
-        if (page.narration?.audioUrl) {
+        if (includeNarration && page.narration?.audioUrl) {
           await playNarration();
           const completed = await waitForVoiceEnd(token);
-          if (!completed || state.mode !== "narrate") return;
+          if (!completed) return;
         }
 
-        for (const line of page.dialogue || []) {
-          if (token !== state.narrateToken || state.mode !== "narrate") return;
-          if (!line.audioUrl) continue;
+        if (includeDialogue) {
+          for (const line of page.dialogue || []) {
+            if (token !== state.narrateToken) return;
+            if (!line.audioUrl) continue;
 
-          await playLine(line.id);
-          const completed = await waitForVoiceEnd(token);
-          if (!completed || state.mode !== "narrate") return;
+            await playLine(line.id);
+            const completed = await waitForVoiceEnd(token);
+            if (!completed) return;
+          }
         }
 
-        if (token === state.narrateToken && state.mode === "narrate") {
+        setActiveLine(null);
+
+        if (autoAdvance && token === state.narrateToken && state.mode === "narrate") {
           nextPage({ auto: true });
         }
+      }
+
+      async function runNarratePageSequence(opts = {}) {
+        await runVoiceSequence({
+          includeNarration: true,
+          includeDialogue: true,
+          autoAdvance: opts.autoAdvance === true
+        });
+      }
+
+      async function runPageDialogueSequence() {
+        await runVoiceSequence({
+          includeNarration: false,
+          includeDialogue: true,
+          autoAdvance: false
+        });
       }
 
       function stopVoice(opts = {}) {
@@ -560,6 +609,7 @@
         voice.currentTime = 0;
         state.voicePlaying = null;
         state.currentHighlight = null;
+        setActiveLine(null);
         clearHighlighting();
       }
 
@@ -646,6 +696,7 @@
 
         voice.addEventListener("ended", () => {
           state.voicePlaying = null;
+          setActiveLine(null);
         });
 
         $("voiceVolume").addEventListener("input", () => {
@@ -675,13 +726,27 @@
             }
             renderPage();
           }
-          if (action === "play-narration") playNarration().catch(showError);
+          if (action === "play-narration") {
+            cancelNarrateSequence();
+            playNarration().catch(showError);
+          }
+          if (action === "play-page-dialogue") {
+            cancelNarrateSequence();
+            runPageDialogueSequence().catch(showError);
+          }
+          if (action === "play-narration-dialogue") {
+            cancelNarrateSequence();
+            runNarratePageSequence({ autoAdvance: false }).catch(showError);
+          }
           if (action === "pause-voice") {
             cancelNarrateSequence();
             $("voiceAudio").pause();
           }
           if (action === "stop-voice") stopVoice();
-          if (action === "play-line") playLine(node.dataset.lineId).catch(showError);
+          if (action === "play-line") {
+            cancelNarrateSequence();
+            playLine(node.dataset.lineId).catch(showError);
+          }
           if (action === "toggle-host") {
             state.collab.isHost = !state.collab.isHost;
             sendPresence();

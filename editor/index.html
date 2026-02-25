@@ -190,6 +190,12 @@
         background: linear-gradient(180deg, #b9e7c6, #77bd8e);
       }
 
+      .btn:disabled,
+      .tab-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
       .stack { display: grid; gap: 12px; }
 
       .card {
@@ -305,12 +311,14 @@
           <div class="tabs" id="tabs"></div>
           <div class="hint" style="margin-bottom: 8px;">Fast path: 1) Generate All 2) Deploy 3) Open Deploy URL from Story tab.</div>
           <div class="actions" style="margin-bottom: 10px;">
-            <button class="btn" data-action="generate-all-scenes">Generate Scenes</button>
-            <button class="btn" data-action="generate-all-audio">Generate Audio</button>
-            <button class="btn ok" data-action="generate-all">Generate All</button>
+            <button class="btn" id="btnGenerateAllScenes" data-action="generate-all-scenes">Generate Scenes</button>
+            <button class="btn" id="btnGenerateAllAudio" data-action="generate-all-audio">Generate Audio</button>
+            <button class="btn" id="btnGenerateAllDialogue" data-action="generate-all-dialogue">Generate All Dialogue + Voices</button>
+            <button class="btn ok" id="btnGenerateAll" data-action="generate-all">Generate All</button>
             <input id="deploySubdomain" placeholder="deploy-subdomain" style="max-width:220px;" />
             <button class="btn warn" data-action="deploy-story">Deploy</button>
           </div>
+          <div class="hint" id="dialogueBatchStatus" style="margin-bottom: 10px;"></div>
           <div id="tabContent"></div>
         </div>
       </section>
@@ -446,6 +454,7 @@
         state.currentStory = payload.story;
         renderStoryList();
         renderTabContent();
+        renderGlobalActions();
       }
 
       async function loadJobs() {
@@ -454,6 +463,7 @@
           const payload = await api(`/api/stories/${encodeURIComponent(state.currentStory.id)}/jobs`);
           state.jobs = payload.jobs || [];
           renderJobs();
+          renderGlobalActions();
         } catch (_err) {}
       }
 
@@ -498,6 +508,7 @@
         state.channel = null;
         state.socket = null;
         setStatus("Socket: idle", true);
+        renderGlobalActions();
       }
 
       function push(event, payload) {
@@ -554,6 +565,71 @@
       function progressFor(job) {
         if (!job) return null;
         return typeof state.jobProgress[job.id] === "number" ? state.jobProgress[job.id] : null;
+      }
+
+      function isActiveStatus(status) {
+        return status === "pending" || status === "running";
+      }
+
+      function hasActiveJobType(jobType) {
+        return (state.jobs || []).some((job) => job.job_type === jobType && isActiveStatus(job.status));
+      }
+
+      function hasActiveDialogueJobForPage(page) {
+        const lineIds = new Set((page.dialogue_lines || []).map((line) => line.id));
+
+        return (state.jobs || []).some((job) => {
+          if (!isActiveStatus(job.status)) return false;
+          if (job.job_type === "dialogue" && job.target_id === page.id) return true;
+          if (job.job_type === "dialogue_tts" && lineIds.has(job.target_id)) return true;
+          return false;
+        });
+      }
+
+      function dialogueTtsSummaryForPage(page) {
+        const lineIds = new Set((page.dialogue_lines || []).map((line) => line.id));
+        if (!lineIds.size) return "";
+
+        const related = (state.jobs || []).filter((job) => job.job_type === "dialogue_tts" && lineIds.has(job.target_id));
+        if (!related.length) return "";
+
+        const counts = { pending: 0, running: 0, completed: 0, failed: 0 };
+        for (const job of related) {
+          const key = counts[job.status] === undefined ? "pending" : job.status;
+          counts[key] += 1;
+        }
+
+        return `Voice jobs • pending ${counts.pending} • running ${counts.running} • completed ${counts.completed} • failed ${counts.failed}`;
+      }
+
+      function renderGlobalActions() {
+        const noStory = !state.currentStory;
+        const dialogueBusy = hasActiveJobType("dialogue") || hasActiveJobType("dialogue_tts");
+
+        const scenes = $("btnGenerateAllScenes");
+        const audio = $("btnGenerateAllAudio");
+        const dialogue = $("btnGenerateAllDialogue");
+        const all = $("btnGenerateAll");
+        const status = $("dialogueBatchStatus");
+
+        if (scenes) scenes.disabled = noStory;
+        if (audio) audio.disabled = noStory;
+        if (all) all.disabled = noStory;
+
+        if (dialogue) {
+          dialogue.disabled = noStory || dialogueBusy;
+          dialogue.textContent = dialogueBusy ? "Generating Dialogue..." : "Generate All Dialogue + Voices";
+        }
+
+        if (status) {
+          if (noStory) {
+            status.textContent = "";
+          } else if (dialogueBusy) {
+            status.textContent = "Dialogue generation is in progress. Buttons are temporarily disabled to avoid duplicate queues.";
+          } else {
+            status.textContent = "Generate All Dialogue + Voices fills empty pages with dialogue and immediately queues ElevenLabs audio.";
+          }
+        }
       }
 
       function voiceOptionsMarkup(selected) {
@@ -643,6 +719,7 @@
         const ttsJob = latestJob("dialogue_tts", line.id);
         const ttsProgress = progressFor(ttsJob);
         const ttsStatus = ttsJob ? `${ttsJob.status}${ttsProgress !== null ? ` (${ttsProgress}%)` : ""}` : null;
+        const ttsBusy = ttsJob && isActiveStatus(ttsJob.status);
 
         return `
           <div class="card" style="background:#fff5de;">
@@ -660,7 +737,7 @@
             ${line.audio_url ? `<audio controls src="${esc(assetUrl(line.audio_url))}" style="width:100%;margin-bottom:8px;"></audio>` : ""}
             <div class="actions">
               <button class="btn" data-action="save-line" data-id="${line.id}">Save Line</button>
-              <button class="btn" data-action="generate-line" data-id="${line.id}">Generate Voice</button>
+              <button class="btn" data-action="generate-line" data-id="${line.id}" ${ttsBusy ? "disabled" : ""}>${ttsBusy ? "Generating..." : "Generate Voice"}</button>
               <button class="btn warn" data-action="delete-line" data-id="${line.id}">Delete</button>
             </div>
           </div>
@@ -670,6 +747,7 @@
       function renderPagesTab() {
         if (!state.currentStory) return '<div class="hint">Pick a story first.</div>';
         const pages = currentPages();
+        const voicedCharacterCount = currentCharacters().filter((character) => !!(character.voice_id || "").trim()).length;
 
         return `
           <div class="stack">
@@ -679,7 +757,12 @@
               <div class="field"><label>Narration</label><textarea id="newPageNarration" placeholder="Luna tiptoed into the moonlit garden..."></textarea></div>
               <button class="btn ok" data-action="add-page">Add Page</button>
             </div>
-            ${pages.map((p, idx) => `
+            ${pages.map((p, idx) => {
+              const dialogueBusy = hasActiveDialogueJobForPage(p);
+              const dialogueSummary = dialogueTtsSummaryForPage(p);
+              const canGenerateDialogue = voicedCharacterCount > 0 && !dialogueBusy;
+
+              return `
               <div class="card">
                 <h3>Page ${p.page_index + 1}</h3>
                 <div class="row">
@@ -696,16 +779,22 @@
                   <button class="btn" data-action="generate-scene" data-id="${p.id}">Generate Scene</button>
                   <button class="btn" data-action="generate-narration" data-id="${p.id}">Generate Narration</button>
                   <input id="page-dialogue-count-${p.id}" type="number" min="1" max="8" value="${Math.max((currentCharacters().length || 2), 2)}" style="max-width:84px;" />
-                  <button class="btn ok" data-action="generate-page-dialogue" data-id="${p.id}">Generate Dialogue + Voices</button>
+                  <button class="btn ok" data-action="generate-page-dialogue" data-id="${p.id}" ${canGenerateDialogue ? "" : "disabled"}>${dialogueBusy ? "Generating..." : "Generate Dialogue + Voices"}</button>
                   <button class="btn warn" data-action="delete-page" data-id="${p.id}">Delete</button>
                 </div>
                 ${(() => {
                   const dialogueJob = latestJob("dialogue", p.id);
                   const dialogueProgress = progressFor(dialogueJob);
-                  if (!dialogueJob) return "";
-                  const status = `${dialogueJob.status}${dialogueProgress !== null ? ` (${dialogueProgress}%)` : ""}`;
-                  return `<div class="hint" style="margin-top:8px;">Dialogue generation: ${esc(status)}</div>`;
+                  if (!dialogueJob && !dialogueSummary) return "";
+                  const parts = [];
+                  if (dialogueJob) {
+                    const status = `${dialogueJob.status}${dialogueProgress !== null ? ` (${dialogueProgress}%)` : ""}`;
+                    parts.push(`Dialogue generation: ${status}`);
+                  }
+                  if (dialogueSummary) parts.push(dialogueSummary);
+                  return `<div class="hint" style="margin-top:8px;">${esc(parts.join(" • "))}</div>`;
                 })()}
+                ${voicedCharacterCount === 0 ? `<div class="hint" style="margin-top:6px;color:#7a3f21;">Add at least one character voice ID before generating dialogue voices.</div>` : ""}
                 <div class="stack" style="margin-top:10px;">
                   <h3 style="font-size:20px;">Dialogue</h3>
                   ${(p.dialogue_lines || []).sort((a,b)=>a.sort_order-b.sort_order).map((line) => dialogueRow(p, line)).join("") || '<div class="hint">No dialogue lines yet.</div>'}
@@ -723,7 +812,8 @@
                   </div>
                 </div>
               </div>
-            `).join("")}
+            `;
+            }).join("")}
           </div>
         `;
       }
@@ -823,6 +913,7 @@
         if (state.currentTab === "pages") root.innerHTML = renderPagesTab();
         if (state.currentTab === "music") root.innerHTML = renderMusicTab();
         if (state.currentTab === "preview") root.innerHTML = renderPreviewTab();
+        renderGlobalActions();
       }
 
       function renderJobs() {
@@ -1061,6 +1152,7 @@
           if (action === "delete-span") await push("delete_music_span", { id: node.dataset.id });
 
           if (action === "generate-all-scenes") await push("generate_all_scenes", {});
+          if (action === "generate-all-dialogue") await push("generate_all_dialogue", {});
           if (action === "generate-all-audio") await push("generate_all_audio", {});
           if (action === "generate-all") await push("generate_all", {});
 
@@ -1088,6 +1180,7 @@
         renderStoryList();
         renderTabContent();
         renderJobs();
+        renderGlobalActions();
         await loadStories();
       })();
     </script>
