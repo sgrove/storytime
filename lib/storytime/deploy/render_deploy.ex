@@ -199,20 +199,49 @@ defmodule Storytime.Deploy.RenderDeploy do
 
   defp wait_for_deploy(api_key, service_id, deploy_id, attempts_left) do
     case Req.get("#{@api_base}/services/#{service_id}/deploys/#{deploy_id}", headers: auth_headers(api_key)) do
-      {:ok, %{status: 200, body: %{"deploy" => deploy}}} ->
-        case deploy["status"] do
-          "live" -> {:ok, :live}
-          "build_failed" -> {:error, {:deploy_failed, deploy}}
-          "canceled" -> {:error, {:deploy_canceled, deploy}}
-          _ ->
-            Process.sleep(2500)
-            wait_for_deploy(api_key, service_id, deploy_id, attempts_left - 1)
+      {:ok, %{status: 200, body: body}} ->
+        with {:ok, deploy} <- unwrap_deploy(body) do
+          case classify_deploy_status(Map.get(deploy, "status")) do
+            :live ->
+              {:ok, :live}
+
+            :failed ->
+              {:error, {:deploy_failed, deploy}}
+
+            :pending ->
+              Process.sleep(2500)
+              wait_for_deploy(api_key, service_id, deploy_id, attempts_left - 1)
+
+            :invalid ->
+              {:error, {:deploy_status_invalid_status, body}}
+          end
+        else
+          {:error, :invalid_deploy_response} ->
+            {:error, {:deploy_status_invalid_shape, body}}
         end
 
       {:ok, %{status: status, body: body}} -> {:error, {:deploy_status_failed, status, body}}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc false
+  @spec unwrap_deploy(term()) :: {:ok, map()} | {:error, :invalid_deploy_response}
+  def unwrap_deploy(%{"deploy" => deploy}) when is_map(deploy), do: {:ok, deploy}
+  def unwrap_deploy(%{"status" => _status} = deploy), do: {:ok, deploy}
+  def unwrap_deploy(_), do: {:error, :invalid_deploy_response}
+
+  @doc false
+  @spec classify_deploy_status(term()) :: :live | :failed | :pending | :invalid
+  def classify_deploy_status("live"), do: :live
+
+  def classify_deploy_status(status)
+      when status in ["build_failed", "failed", "update_failed", "canceled", "cancelled", "deactivated"] do
+    :failed
+  end
+
+  def classify_deploy_status(status) when is_binary(status) and status != "", do: :pending
+  def classify_deploy_status(_), do: :invalid
 
   defp ensure_url(%{url: url}) when is_binary(url) and url != "", do: {:ok, url}
 
