@@ -16,7 +16,7 @@ defmodule Storytime.JobDiagnostics do
         id: job.id,
         job_type: to_string(job.job_type),
         target_id: job.target_id,
-        status: to_string(job.status),
+        status: effective_status(job.status, oban_job),
         error: job.error,
         inserted_at: job.inserted_at,
         updated_at: job.updated_at,
@@ -213,6 +213,9 @@ defmodule Storytime.JobDiagnostics do
       status == :running and is_binary(oban_state) ->
         "Job marked running (oban: #{oban_state})."
 
+      status == :pending and oban_state in ["discarded", "cancelled", "canceled"] ->
+        "Worker exhausted retries. Retry this job to enqueue a fresh attempt."
+
       status == :pending and oban_state in ["scheduled", "retryable"] ->
         wait = seconds_until(oban_job.scheduled_at, now)
 
@@ -260,6 +263,16 @@ defmodule Storytime.JobDiagnostics do
   defp elapsed_seconds(datetime, now) do
     DateTime.diff(now, datetime, :second)
   end
+
+  defp effective_status(:pending, %{state: state})
+       when state in [:discarded, :cancelled, :canceled],
+       do: "failed"
+
+  defp effective_status(:pending, %{state: state})
+       when state in ["discarded", "cancelled", "canceled"],
+       do: "failed"
+
+  defp effective_status(status, _oban_job), do: to_string(status)
 
   defp seconds_until(nil, _now), do: nil
 

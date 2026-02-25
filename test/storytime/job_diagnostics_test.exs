@@ -123,4 +123,46 @@ defmodule Storytime.JobDiagnosticsTest do
     assert job.oban.errors_count == 1
     assert job.oban.last_error == "timeout from provider"
   end
+
+  test "marks pending jobs as failed when oban is discarded" do
+    now = DateTime.from_unix!(1_762_094_200)
+
+    jobs = [
+      %{
+        id: "job-discarded",
+        job_type: :dialogue_tts,
+        target_id: "line-2",
+        status: :pending,
+        error: nil,
+        inserted_at: now,
+        updated_at: now
+      }
+    ]
+
+    oban_jobs = [
+      %{
+        id: 99,
+        args: %{"generation_job_id" => "job-discarded", "story_id" => "story-1"},
+        state: "discarded",
+        queue: "generation",
+        worker: "Storytime.Workers.TtsGenWorker",
+        attempt: 6,
+        max_attempts: 6,
+        inserted_at: now,
+        scheduled_at: now,
+        attempted_at: now,
+        completed_at: nil,
+        cancelled_at: nil,
+        discarded_at: now,
+        errors: [%{"error" => "voice lookup failed"}]
+      }
+    ]
+
+    [job] = JobDiagnostics.enrich(jobs, nil, oban_jobs, now)
+
+    assert job.status == "failed"
+
+    assert job.active_detail ==
+             "Worker exhausted retries. Retry this job to enqueue a fresh attempt."
+  end
 end

@@ -13,6 +13,15 @@ defmodule Storytime.Workers.TtsGenWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
+    do_perform(args)
+  rescue
+    exception ->
+      handle_failure(args, {:unhandled_exception, Exception.message(exception)})
+  end
+
+  def perform(args) when is_map(args), do: perform(%Oban.Job{args: args})
+
+  defp do_perform(args) do
     with {:ok, generation_job_id} <- required_arg(args, "generation_job_id"),
          {:ok, story_id} <- required_arg(args, "story_id"),
          {:ok, type} <- required_arg(args, "type"),
@@ -67,8 +76,6 @@ defmodule Storytime.Workers.TtsGenWorker do
     end
   end
 
-  def perform(args) when is_map(args), do: perform(%Oban.Job{args: args})
-
   defp fetch_story(story_id) do
     case Stories.load_story_graph(story_id) do
       nil -> {:error, :story_not_found}
@@ -77,12 +84,14 @@ defmodule Storytime.Workers.TtsGenWorker do
   end
 
   defp fetch_target(story, "dialogue", target_id) do
+    character_by_id = Map.new(story.characters || [], &{&1.id, &1})
+
     story.pages
     |> Enum.flat_map(& &1.dialogue_lines)
     |> Enum.find(&(&1.id == target_id))
     |> case do
       nil -> {:error, :dialogue_not_found}
-      line -> {:ok, line}
+      line -> {:ok, %{line | character: Map.get(character_by_id, line.character_id)}}
     end
   end
 
@@ -96,14 +105,17 @@ defmodule Storytime.Workers.TtsGenWorker do
   defp fetch_target(_story, _type, _target_id), do: {:error, :unsupported_tts_type}
 
   defp tts_input("dialogue", line) do
-    character = find_character(line)
-
     text = line.text || ""
+    {voice_id, model_id} = dialogue_voice_ids(line)
 
     if text == "" do
       {:error, :empty_text}
     else
-      {:ok, text, character && character.voice_id, character && character.voice_model_id}
+      if blank?(voice_id) do
+        {:error, :missing_character_voice_id}
+      else
+        {:ok, text, voice_id, model_id}
+      end
     end
   end
 
@@ -117,8 +129,20 @@ defmodule Storytime.Workers.TtsGenWorker do
     end
   end
 
+  @doc false
+  def dialogue_voice_ids(line) do
+    character = find_character(line)
+
+    if character do
+      {character.voice_id, character.voice_model_id}
+    else
+      {nil, nil}
+    end
+  end
+
   defp find_character(line) do
     case Map.get(line, :character) do
+      %Ecto.Association.NotLoaded{} -> nil
       nil -> nil
       character -> character
     end
@@ -258,7 +282,9 @@ defmodule Storytime.Workers.TtsGenWorker do
     type = Map.get(args, "type")
     target_id = Map.get(args, "target_id")
 
-    _ = status_update(generation_job_id, :failed, inspect(reason))
+    if is_binary(generation_job_id) do
+      _ = status_update(generation_job_id, :failed, inspect(reason))
+    end
 
     if story_id do
       _ = Stories.maybe_mark_story_ready(story_id)

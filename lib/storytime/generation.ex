@@ -34,7 +34,7 @@ defmodule Storytime.Generation do
         {:error, :retry_not_supported}
 
       %{job_type: job_type, target_id: target_id} ->
-        enqueue(story_id, job_type, target_id, payload)
+        enqueue(story_id, job_type, target_id, Map.put(payload || %{}, "force", true))
     end
   end
 
@@ -156,7 +156,7 @@ defmodule Storytime.Generation do
   end
 
   defp maybe_enqueue_job(story_id, job_type, target_id, payload) do
-    case Stories.find_active_generation_job(story_id, job_type, target_id) do
+    case active_job_for(story_id, job_type, target_id, payload) do
       nil ->
         with {:ok, gen_job} <- Stories.create_generation_job(story_id, job_type, target_id),
              {:ok, _oban_job} <-
@@ -168,6 +168,21 @@ defmodule Storytime.Generation do
         {:ok, active_job}
     end
   end
+
+  defp active_job_for(story_id, job_type, target_id, payload) do
+    if force_payload?(payload) do
+      nil
+    else
+      Stories.find_active_generation_job(story_id, job_type, target_id)
+    end
+  end
+
+  defp force_payload?(payload) when is_map(payload) do
+    Map.get(payload, "force") in [true, "true", 1, "1"] or
+      Map.get(payload, :force) in [true, "true", 1, "1"]
+  end
+
+  defp force_payload?(_payload), do: false
 
   defp insert_oban_job(story_id, generation_job_id, :headshot, target_id, payload) do
     %{
