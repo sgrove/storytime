@@ -3,16 +3,153 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Storytime Editor Bootstrap</title>
+    <title>Storytime Editor Channel Probe</title>
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
-      .card { max-width: 800px; border: 1px solid #ddd; border-radius: 12px; padding: 1rem 1.25rem; }
+      :root { color-scheme: light; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 1.25rem; }
+      .card { max-width: 920px; border: 1px solid #ddd; border-radius: 12px; padding: 1rem 1.25rem; }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.5rem 0; }
+      input, button, textarea { font: inherit; padding: 0.5rem 0.6rem; border: 1px solid #cfcfcf; border-radius: 8px; }
+      input { min-width: 220px; }
+      button { cursor: pointer; background: #f7f7f7; }
+      #log { width: 100%; height: 280px; }
+      .ok { color: #166534; }
+      .err { color: #b91c1c; }
+      code { background: #f5f5f5; padding: 0.12rem 0.3rem; border-radius: 6px; }
     </style>
   </head>
   <body>
     <div class="card">
       <h1>Storytime Editor Bootstrap</h1>
-      <p>Render static site placeholder. Next step is Vite + React + Phoenix Channel wiring.</p>
+      <p>
+        This placeholder verifies API + Phoenix Channels wiring.
+        It targets <code>story:{id}</code> and can send CRUD-stub events.
+      </p>
+
+      <div class="row">
+        <label>API Base</label>
+        <input id="apiBase" value="https://storytime-api-091733.onrender.com" />
+        <label>Story ID</label>
+        <input id="storyId" value="demo" />
+      </div>
+
+      <div class="row">
+        <button id="btnFetchPack">Fetch StoryPack</button>
+        <button id="btnConnect">Connect Socket</button>
+        <button id="btnJoin">Join Channel</button>
+        <span id="status">status: idle</span>
+      </div>
+
+      <div class="row">
+        <button id="btnUpdateStory">Send update_story</button>
+        <button id="btnAddCharacter">Send add_character</button>
+        <button id="btnAddPage">Send add_page</button>
+        <button id="btnReorder">Send reorder_pages</button>
+      </div>
+
+      <textarea id="log" readonly></textarea>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/phoenix@1.7.14/priv/static/phoenix.min.js"></script>
+    <script>
+      const logEl = document.getElementById("log");
+      const statusEl = document.getElementById("status");
+      let socket = null;
+      let channel = null;
+
+      const now = () => new Date().toISOString().slice(11, 19);
+      const log = (msg) => {
+        logEl.value += `[${now()}] ${msg}\n`;
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      const apiBase = () => document.getElementById("apiBase").value.trim().replace(/\/$/, "");
+      const storyId = () => document.getElementById("storyId").value.trim() || "demo";
+
+      const wsBase = () => apiBase().replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
+
+      document.getElementById("btnFetchPack").onclick = async () => {
+        const url = `${apiBase()}/api/stories/${encodeURIComponent(storyId())}/pack`;
+        try {
+          const res = await fetch(url);
+          const json = await res.json();
+          log(`StoryPack ${res.status}: schemaVersion=${json.schemaVersion} title=${json.title}`);
+        } catch (err) {
+          log(`StoryPack fetch failed: ${err.message}`);
+        }
+      };
+
+      document.getElementById("btnConnect").onclick = () => {
+        try {
+          socket = new window.Phoenix.Socket(`${wsBase()}/socket`, { params: { client: "editor-bootstrap" } });
+          socket.connect();
+          statusEl.textContent = "status: socket connected";
+          statusEl.className = "ok";
+          log(`Socket connected -> ${wsBase()}/socket`);
+        } catch (err) {
+          statusEl.textContent = "status: socket error";
+          statusEl.className = "err";
+          log(`Socket connect failed: ${err.message}`);
+        }
+      };
+
+      document.getElementById("btnJoin").onclick = () => {
+        if (!socket) {
+          log("Join skipped: connect socket first");
+          return;
+        }
+
+        channel = socket.channel(`story:${storyId()}`, { source: "editor-bootstrap" });
+
+        const forward = [
+          "story_updated",
+          "character_added",
+          "character_updated",
+          "character_deleted",
+          "page_added",
+          "page_updated",
+          "page_deleted",
+          "pages_reordered",
+          "event_received"
+        ];
+
+        forward.forEach((ev) => channel.on(ev, (payload) => log(`recv ${ev}: ${JSON.stringify(payload)}`)));
+
+        channel.join()
+          .receive("ok", (resp) => {
+            statusEl.textContent = "status: channel joined";
+            statusEl.className = "ok";
+            log(`join ok: ${JSON.stringify(resp)}`);
+          })
+          .receive("error", (resp) => {
+            statusEl.textContent = "status: join failed";
+            statusEl.className = "err";
+            log(`join error: ${JSON.stringify(resp)}`);
+          });
+      };
+
+      const push = (event, payload) => {
+        if (!channel) {
+          log(`Push skipped for ${event}: join channel first`);
+          return;
+        }
+
+        channel.push(event, payload)
+          .receive("ok", (resp) => log(`ack ${event}: ${JSON.stringify(resp)}`))
+          .receive("error", (resp) => log(`err ${event}: ${JSON.stringify(resp)}`));
+      };
+
+      document.getElementById("btnUpdateStory").onclick = () =>
+        push("update_story", { title: "Moonlit Garden", art_style: "watercolor" });
+
+      document.getElementById("btnAddCharacter").onclick = () =>
+        push("add_character", { name: "Luna", visual_description: "A brave fox" });
+
+      document.getElementById("btnAddPage").onclick = () =>
+        push("add_page", { page_index: 0, scene_description: "Lanterns in the trees" });
+
+      document.getElementById("btnReorder").onclick = () =>
+        push("reorder_pages", { page_ids: ["page-2", "page-1"] });
+    </script>
   </body>
 </html>

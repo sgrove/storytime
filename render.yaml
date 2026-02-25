@@ -4,17 +4,42 @@ services:
     runtime: elixir
     plan: starter
     region: oregon
+    healthCheckPath: /health
     buildCommand: |
       mix deps.get --only prod
       MIX_ENV=prod mix deps.compile
       MIX_ENV=prod mix compile
-    startCommand: MIX_ENV=prod mix run --no-halt
-    healthCheckPath: /health
+    startCommand: |
+      MIX_ENV=prod mix ecto.migrate
+      MIX_ENV=prod mix phx.server
+    envVars:
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: PHX_HOST
+        value: storytime-api.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: storytime-db
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: SONAUTO_API_KEY
+        sync: false
+      - key: RENDER_API_KEY
+        sync: false
+      - key: INSTANT_APP_ID
+        sync: false
+    disk:
+      name: storytime-assets
+      mountPath: /app/assets
+      sizeGB: 1
 
   - type: web
     name: storytime-editor
     runtime: static
-    buildCommand: echo "No build step yet"
+    buildCommand: echo "Static bootstrap"
     staticPublishPath: editor
     routes:
       - type: rewrite
@@ -24,9 +49,14 @@ services:
   - type: web
     name: storytime-reader-template
     runtime: static
-    buildCommand: echo "No build step yet"
+    buildCommand: echo "Static bootstrap"
     staticPublishPath: reader
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
+
+databases:
+  - name: storytime-db
+    plan: basic_256mb
+    postgresMajorVersion: "16"
