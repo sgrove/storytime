@@ -122,33 +122,77 @@ defmodule Storytime.Workers.ImageGenWorker do
     if blank?(api_key) do
       {:error, :missing_openai_api_key}
     else
-      body = %{
-        model: "gpt-image-1.5",
-        prompt: prompt,
-        size: size,
-        output_format: "png"
-      }
+      case request_openai_image(api_key, prompt, size) do
+        {:ok, bytes} ->
+          {:ok, bytes}
 
-      headers = [
-        {"authorization", "Bearer #{api_key}"},
-        {"content-type", "application/json"}
-      ]
+        {:error, {:openai_error, status, body} = error} ->
+          if should_fallback_size?(status, body, size) do
+            fallback_size = fallback_size_for(size)
 
-      case Req.post(@openai_url, json: body, headers: headers) do
-        {:ok, %{status: 200, body: %{"data" => [%{"b64_json" => b64} | _]}}} ->
-          case Base.decode64(b64) do
-            {:ok, bytes} -> {:ok, bytes}
-            :error -> {:error, :invalid_image_payload}
+            case request_openai_image(api_key, prompt, fallback_size) do
+              {:ok, bytes} -> {:ok, bytes}
+              {:error, _reason} -> {:error, error}
+            end
+          else
+            {:error, error}
           end
-
-        {:ok, %{status: status, body: body}} ->
-          {:error, {:openai_error, status, body}}
 
         {:error, reason} ->
           {:error, reason}
       end
     end
   end
+
+  defp request_openai_image(api_key, prompt, size) do
+    body = %{
+      model: "gpt-image-1.5",
+      prompt: prompt,
+      size: size,
+      output_format: "png"
+    }
+
+    headers = [
+      {"authorization", "Bearer #{api_key}"},
+      {"content-type", "application/json"}
+    ]
+
+    case Req.post(@openai_url, json: body, headers: headers) do
+      {:ok, %{status: 200, body: %{"data" => [%{"b64_json" => b64} | _]}}} ->
+        case Base.decode64(b64) do
+          {:ok, bytes} -> {:ok, bytes}
+          :error -> {:error, :invalid_image_payload}
+        end
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:openai_error, status, body}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  def should_fallback_size?(400, body, size) when is_binary(size) do
+    fallback_size_for(size) != nil and invalid_size_error?(body)
+  end
+
+  def should_fallback_size?(_status, _body, _size), do: false
+
+  @doc false
+  def fallback_size_for("512x512"), do: "1024x1024"
+  def fallback_size_for(_), do: nil
+
+  defp invalid_size_error?(%{"error" => error}) when is_map(error) do
+    code = Map.get(error, "code")
+    param = Map.get(error, "param")
+    message = Map.get(error, "message", "")
+
+    code == "invalid_value" and param == "size" and
+      is_binary(message) and String.contains?(String.downcase(message), "supported values")
+  end
+
+  defp invalid_size_error?(_), do: false
 
   defp persist_url(story_id, "headshot", target_id, url),
     do: Stories.set_character_headshot(story_id, target_id, url)

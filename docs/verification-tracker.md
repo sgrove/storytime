@@ -37,6 +37,7 @@
 - [x] Generation workers now emit staged `generation_progress` updates and no longer silently fallback to non-spec providers.
 - [x] Image/TTS/music workers now reuse existing persisted asset URLs for the same target, preventing duplicate provider generation work on retries.
 - [x] Generation enqueue now suppresses duplicate active jobs for identical story/job_type/target requests.
+- [x] Image generation now automatically falls back from legacy `512x512` headshot size to `1024x1024` when OpenAI rejects the old size.
 - [x] GitHub Actions CD now runs compile/test/dialyzer guards, validates `render.yaml` via Render CLI, and triggers/polls API/editor/reader deploys on pushes to `main`.
 - [x] Reader identity is now session-stable (ephemeral, no login) and host page sync broadcasts are host-only.
 - [x] Reader now exposes explicit playback status and prunes stale collaboration peers after inactivity.
