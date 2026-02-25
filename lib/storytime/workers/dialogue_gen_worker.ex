@@ -13,7 +13,8 @@ defmodule Storytime.Workers.DialogueGenWorker do
   alias Storytime.WordTimings
 
   @openai_chat_url "https://api.openai.com/v1/chat/completions"
-  @elevenlabs_dialogue_url "https://api.elevenlabs.io/v1/text-to-dialogue/convert-with-timestamps"
+  @elevenlabs_dialogue_url "https://api.elevenlabs.io/v1/text-to-dialogue/with-timestamps"
+  @elevenlabs_dialogue_url_legacy "https://api.elevenlabs.io/v1/text-to-dialogue/convert-with-timestamps"
   @default_model "gpt-5.2"
 
   @impl Oban.Worker
@@ -436,6 +437,7 @@ defmodule Storytime.Workers.DialogueGenWorker do
   defp post_dialogue_timestamp_request(api_key, inputs) do
     query = URI.encode_query(%{"output_format" => "mp3_44100_128"})
     url = "#{@elevenlabs_dialogue_url}?#{query}"
+    legacy_url = "#{@elevenlabs_dialogue_url_legacy}?#{query}"
 
     headers = [
       {"xi-api-key", api_key},
@@ -448,12 +450,30 @@ defmodule Storytime.Workers.DialogueGenWorker do
       {:ok, %{status: 200, body: response_body}} when is_map(response_body) ->
         {:ok, response_body}
 
+      {:ok, %{status: 404}} ->
+        case Req.post(legacy_url, headers: headers, json: body) do
+          {:ok, %{status: 200, body: response_body}} when is_map(response_body) ->
+            {:ok, response_body}
+
+          {:ok, %{status: status, body: response_body}} ->
+            {:error, {:elevenlabs_dialogue_error, status, response_body}}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
       {:ok, %{status: status, body: response_body}} ->
         {:error, {:elevenlabs_dialogue_error, status, response_body}}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc false
+  def request_dialogue_timestamps_live(api_key, inputs)
+      when is_binary(api_key) and is_list(inputs) do
+    post_dialogue_timestamp_request(api_key, inputs)
   end
 
   defp extract_character_alignment(payload) when is_map(payload) do
