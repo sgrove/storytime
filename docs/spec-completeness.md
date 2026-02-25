@@ -11,7 +11,7 @@ Legend:
 
 | Area | Status | Notes |
 |---|---|---|
-| FR-001..FR-009 Authoring + story data | Partial | Ecto schemas/migration added; full CRUD UI + persistence flows not complete. |
+| FR-001..FR-009 Authoring + story data | Partial | Ecto schemas/migration added; minimal persisted API for story create/list added; full editor CRUD flows not complete. |
 | FR-010..FR-014 Editor real-time protocol | Partial | Phoenix socket + `story:{id}` channel with join and CRUD stub events live; persistence + full event matrix pending. |
 | FR-015..FR-023 Generation pipeline | Partial | Worker modules exist as stubs; queue orchestration and API integrations pending. |
 | FR-024..FR-030 Asset pipeline + StoryPack | Partial | StoryPack endpoint live with scaffold payload; deterministic asset pipeline/storage pending. |

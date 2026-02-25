@@ -4,6 +4,8 @@
 - [x] `GET /health` returns `200`.
 - [x] `GET /` API shell route returns HTML.
 - [x] `GET /api/version` returns API metadata JSON.
+- [x] `GET /api/stories` returns persisted story list when DB is available.
+- [x] `POST /api/stories` creates persisted stories when DB is available.
 - [x] `GET /api/stories/:id/pack` returns StoryPack scaffold JSON.
 - [x] Phoenix WebSocket endpoint available at `/socket`.
 - [x] Channel `story:{story_id}` join implemented.

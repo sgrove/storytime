@@ -10,6 +10,8 @@ defmodule StorytimeWeb.Router do
 
     get "/health", HealthController, :show
     get "/api/version", ApiController, :version
+    get "/api/stories", ApiController, :stories
+    post "/api/stories", ApiController, :create_story
     get "/api/stories/:id/pack", ApiController, :story_pack
   end
 
