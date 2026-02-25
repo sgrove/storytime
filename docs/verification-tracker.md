@@ -26,6 +26,7 @@
 - [x] CORS regression tests added for `/health` requests with/without `Origin`, preventing prior FunctionClause crash.
 - [x] Local dialyzer runs clean (`mix dialyzer`) as a pre-deploy API guard.
 - [x] Generation workers now emit staged `generation_progress` updates and no longer silently fallback to non-spec providers.
+- [x] GitHub Actions CD now runs compile/test/dialyzer guards, validates `render.yaml` via Render CLI, and triggers/polls API/editor/reader deploys on pushes to `main`.
 
 ## In progress
 - [ ] Full event payload parity across every FR-012 broadcast shape.

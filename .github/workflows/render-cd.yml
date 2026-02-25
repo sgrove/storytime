@@ -1,0 +1,100 @@
+name: Render CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-cd-main
+  cancel-in-progress: false
+
+jobs:
+  api-guards:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Elixir and OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.4"
+          otp-version: "27.3"
+
+      - name: Cache dependencies and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+            priv/plts
+          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - name: Install Hex and Rebar
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      - name: Production compile guard
+        run: |
+          MIX_ENV=prod mix deps.get --only prod
+          MIX_ENV=prod mix deps.compile
+          MIX_ENV=prod mix compile
+
+      - name: Test suite
+        run: mix test
+
+      - name: Dialyzer
+        run: mix dialyzer
+
+  blueprint-validate:
+    runs-on: ubuntu-latest
+    needs: api-guards
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Render CLI
+        run: |
+          set -euo pipefail
+          version="2.10"
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o /tmp/render-cli.zip "https://github.com/render-oss/cli/releases/download/v${version}/cli_${version}_linux_amd64.zip"
+          unzip -p /tmp/render-cli.zip "cli_v${version}" > "$HOME/.local/bin/render"
+          chmod +x "$HOME/.local/bin/render"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Validate render.yaml with Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_WORKSPACE_ID: ${{ vars.RENDER_WORKSPACE_ID }}
+          RENDER_CLI_CONFIG_PATH: ${{ runner.temp }}/render-cli-config.yaml
+        run: scripts/render_blueprint_validate.sh render.yaml
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - api-guards
+      - blueprint-validate
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy API + editor + reader on Render
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_API_SERVICE_ID: ${{ vars.RENDER_API_SERVICE_ID || 'srv-d6fitbkr85hc73cbemt0' }}
+          RENDER_EDITOR_SERVICE_ID: ${{ vars.RENDER_EDITOR_SERVICE_ID || 'srv-d6fiv2ggjchc73fvdgh0' }}
+          RENDER_READER_SERVICE_ID: ${{ vars.RENDER_READER_SERVICE_ID || 'srv-d6fiv3haae7s73as3ch0' }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: scripts/render_deploy_cd.sh

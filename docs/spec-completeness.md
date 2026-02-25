@@ -25,7 +25,7 @@ Legend:
 | NFR Group | Status | Notes |
 |---|---|---|
 | Performance | Not started | No benchmark instrumentation yet. |
-| Reliability | Partial | Continuous Render deploys, Oban durability, and bounded retries are in place; current hardening focus is full AC rehearsal and multi-device collaboration validation. |
+| Reliability | Partial | Continuous Render deploys are now CI-gated in GitHub Actions (prod compile + tests + dialyzer + blueprint validate + deploy polling), and Oban durability/bounded retries are in place; remaining hardening is full AC rehearsal and multi-device collaboration validation. |
 | Scalability | Not started | No load testing yet. |
 | Security/integrity | Partial | Secrets are in Render env vars, CORS origin handling is regression-tested to avoid runtime crashes, and API compile/runtime guards run locally before deploy. |
 | Cost/efficiency | Partial | Running on starter/basic tiers; generation cost controls pending. |
