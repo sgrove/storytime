@@ -70,4 +70,76 @@ defmodule Storytime.Workers.ImageGenWorkerTest do
     refute ImageGenWorker.force_payload?(%{"payload" => %{"force" => false}})
     refute ImageGenWorker.force_payload?(%{"payload" => %{}})
   end
+
+  test "scene references include page characters in dialogue order with absolute urls" do
+    previous_host = System.get_env("PHX_HOST")
+    System.put_env("PHX_HOST", "storytime-api-091733.onrender.com")
+
+    on_exit(fn ->
+      if previous_host == nil do
+        System.delete_env("PHX_HOST")
+      else
+        System.put_env("PHX_HOST", previous_host)
+      end
+    end)
+
+    story = %{
+      characters: [
+        %{
+          id: "char-1",
+          name: "Luna",
+          visual_description: "fox",
+          headshot_url: "/assets/story/char-1.png"
+        },
+        %{id: "char-2", name: "Oliver", visual_description: "owl", headshot_url: ""},
+        %{
+          id: "char-3",
+          name: "Milo",
+          visual_description: "cat",
+          headshot_url: "/assets/story/char-3.png"
+        }
+      ],
+      pages: [
+        %{
+          id: "page-1",
+          dialogue_lines: [
+            %{id: "line-2", character_id: "char-1", sort_order: 2},
+            %{id: "line-1", character_id: "char-3", sort_order: 1},
+            %{id: "line-3", character_id: "char-1", sort_order: 3},
+            %{id: "line-4", character_id: "char-2", sort_order: 4}
+          ]
+        }
+      ]
+    }
+
+    refs = ImageGenWorker.scene_character_references(story, "page-1")
+
+    assert Enum.map(refs, & &1.character_id) == ["char-3", "char-1"]
+    assert Enum.map(refs, & &1.name) == ["Milo", "Luna"]
+
+    assert Enum.map(refs, & &1.image_url) == [
+             "https://storytime-api-091733.onrender.com/assets/story/char-3.png",
+             "https://storytime-api-091733.onrender.com/assets/story/char-1.png"
+           ]
+  end
+
+  test "extracts generated image bytes from responses api payload" do
+    image_bytes = "png-bytes"
+
+    body = %{
+      "output" => [
+        %{
+          "type" => "image_generation_call",
+          "result" => Base.encode64(image_bytes)
+        }
+      ]
+    }
+
+    assert {:ok, ^image_bytes} = ImageGenWorker.extract_responses_image_bytes(body)
+  end
+
+  test "returns invalid_image_payload when responses payload has no image output" do
+    assert {:error, :invalid_image_payload} =
+             ImageGenWorker.extract_responses_image_bytes(%{"output" => []})
+  end
 end

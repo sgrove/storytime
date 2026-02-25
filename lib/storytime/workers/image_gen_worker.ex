@@ -11,6 +11,7 @@ defmodule Storytime.Workers.ImageGenWorker do
   alias Storytime.Stories
 
   @openai_url "https://api.openai.com/v1/images/generations"
+  @openai_responses_url "https://api.openai.com/v1/responses"
   @openai_image_model "gpt-image-1.5"
   @headshot_image_size "1024x1024"
   @scene_image_size "1536x1024"
@@ -30,10 +31,15 @@ defmodule Storytime.Workers.ImageGenWorker do
           complete_from_cached(story_id, type, target_id, generation_job_id, asset_url)
 
         :none ->
+          references = scene_references_for_generation(story, type, target_id)
+          prompt_reference_count = length(references)
+
           with {:ok, target_prompt, filename} <- prompt_and_filename(story, type, target_id),
+               prompt <- augment_prompt_with_references(target_prompt, references),
                :ok <- mark_running(generation_job_id),
                :ok <- emit_progress(story_id, type, target_id, generation_job_id, 10),
-               {:ok, image_bytes, provider} <- generate_image(target_prompt, image_size_for(type)),
+               {:ok, image_bytes, provider} <-
+                 generate_image(prompt, image_size_for(type), references),
                :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
                {:ok, asset_url} <- Assets.write_binary(story_id, filename, image_bytes),
                {:ok, _} <- persist_url(story_id, type, target_id, asset_url),
@@ -47,7 +53,8 @@ defmodule Storytime.Workers.ImageGenWorker do
               job_type: map_job_type(type),
               target_id: target_id,
               job_id: generation_job_id,
-              url: asset_url
+              url: asset_url,
+              reference_count: prompt_reference_count
             })
 
             {:ok, %{url: asset_url, provider: provider}}
@@ -84,6 +91,41 @@ defmodule Storytime.Workers.ImageGenWorker do
   end
 
   def force_payload?(_args), do: false
+
+  defp scene_references_for_generation(story, "scene", target_id),
+    do: scene_character_references(story, target_id)
+
+  defp scene_references_for_generation(_story, _type, _target_id), do: []
+
+  @doc false
+  def scene_character_references(story, target_id) do
+    characters_by_id = Map.new(story.characters || [], &{&1.id, &1})
+
+    case Enum.find(story.pages || [], &(&1.id == target_id)) do
+      nil ->
+        []
+
+      page ->
+        page.dialogue_lines
+        |> List.wrap()
+        |> Enum.sort_by(fn line -> {line.sort_order || 0, line.id || ""} end)
+        |> Enum.map(& &1.character_id)
+        |> Enum.reject(&blank?/1)
+        |> Enum.uniq()
+        |> Enum.map(&Map.get(characters_by_id, &1))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(fn character ->
+          %{
+            character_id: character.id,
+            name: character.name,
+            visual_description: character.visual_description,
+            image_url: absolute_reference_url(character.headshot_url)
+          }
+        end)
+        |> Enum.reject(&blank?(&1.image_url))
+        |> Enum.take(6)
+    end
+  end
 
   defp fetch_story(story_id) do
     case Stories.load_story_graph(story_id) do
@@ -177,22 +219,32 @@ defmodule Storytime.Workers.ImageGenWorker do
 
   def timeout_from_env(_raw_value, default_ms, _min_ms), do: default_ms
 
-  defp generate_image(prompt, size) do
-    case call_openai_image(prompt, size) do
+  defp generate_image(prompt, size, references) do
+    case call_openai_image(prompt, size, references) do
       {:ok, bytes} -> {:ok, bytes, "openai"}
       {:error, _reason} = error -> error
     end
   end
 
-  defp call_openai_image(prompt, size) do
+  defp call_openai_image(prompt, size, references) do
     api_key = System.get_env("OPENAI_API_KEY")
 
     if blank?(api_key) do
       {:error, :missing_openai_api_key}
     else
-      case request_openai_image(api_key, prompt, size) do
+      request =
+        if references == [] do
+          request_openai_image(api_key, prompt, size)
+        else
+          request_openai_image_with_references(api_key, prompt, size, references)
+        end
+
+      case request do
         {:ok, bytes} ->
           {:ok, bytes}
+
+        {:error, _reason} when references != [] ->
+          request_openai_image(api_key, prompt, size)
 
         {:error, {:openai_error, status, body} = error} ->
           if should_fallback_size?(status, body, size) do
@@ -209,6 +261,58 @@ defmodule Storytime.Workers.ImageGenWorker do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp request_openai_image_with_references(api_key, prompt, size, references) do
+    content =
+      [%{type: "input_text", text: prompt}] ++
+        Enum.map(references, fn reference ->
+          %{
+            type: "input_image",
+            image_url: reference.image_url,
+            input_fidelity: "low"
+          }
+        end)
+
+    body = %{
+      model: @openai_image_model,
+      input: [
+        %{
+          role: "user",
+          content: content
+        }
+      ],
+      tools: [
+        %{
+          type: "image_generation",
+          size: size,
+          output_format: "png"
+        }
+      ]
+    }
+
+    headers = [
+      {"authorization", "Bearer #{api_key}"},
+      {"content-type", "application/json"}
+    ]
+
+    case Req.post(@openai_responses_url,
+           json: body,
+           headers: headers,
+           receive_timeout: openai_image_timeout_ms(),
+           pool_timeout: openai_pool_timeout_ms(),
+           connect_options: [timeout: openai_connect_timeout_ms()],
+           retry: false
+         ) do
+      {:ok, %{status: 200, body: response_body}} ->
+        extract_responses_image_bytes(response_body)
+
+      {:ok, %{status: status, body: response_body}} ->
+        {:error, {:openai_error, status, response_body}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -258,6 +362,45 @@ defmodule Storytime.Workers.ImageGenWorker do
   def fallback_size_for("512x512"), do: @headshot_image_size
   def fallback_size_for(_), do: nil
 
+  @doc false
+  def extract_responses_image_bytes(%{"output" => output}) when is_list(output) do
+    with image_b64 when is_binary(image_b64) <- image_generation_base64(output),
+         {:ok, bytes} <- Base.decode64(image_b64) do
+      {:ok, bytes}
+    else
+      _ -> {:error, :invalid_image_payload}
+    end
+  end
+
+  def extract_responses_image_bytes(_), do: {:error, :invalid_image_payload}
+
+  defp image_generation_base64(output) do
+    direct =
+      output
+      |> Enum.find(fn item ->
+        item["type"] == "image_generation_call" and is_binary(item["result"])
+      end)
+      |> case do
+        nil -> nil
+        item -> item["result"]
+      end
+
+    direct || nested_image_base64(output)
+  end
+
+  defp nested_image_base64(output) do
+    output
+    |> Enum.flat_map(fn item -> List.wrap(item["content"]) end)
+    |> Enum.find_value(fn content ->
+      cond do
+        is_binary(content["result"]) -> content["result"]
+        is_binary(content["b64_json"]) -> content["b64_json"]
+        is_binary(content["image_base64"]) -> content["image_base64"]
+        true -> nil
+      end
+    end)
+  end
+
   defp invalid_size_error?(%{"error" => error}) when is_map(error) do
     code = Map.get(error, "code")
     param = Map.get(error, "param")
@@ -268,6 +411,51 @@ defmodule Storytime.Workers.ImageGenWorker do
   end
 
   defp invalid_size_error?(_), do: false
+
+  defp augment_prompt_with_references(prompt, []), do: prompt
+
+  defp augment_prompt_with_references(prompt, references) do
+    reference_details =
+      references
+      |> Enum.with_index(1)
+      |> Enum.map(fn {reference, idx} ->
+        "#{idx}. #{reference.name || "Character"} (#{reference.visual_description || "no description"})"
+      end)
+      |> Enum.join(" | ")
+
+    [
+      prompt,
+      "Character consistency references (in dialogue order): #{reference_details}.",
+      "These portraits are sent as low-fidelity thumbnails; preserve each character's identity cues (face, hair, outfit silhouette, palette)."
+    ]
+    |> Enum.join(" ")
+  end
+
+  defp absolute_reference_url(url) when not is_binary(url), do: nil
+
+  defp absolute_reference_url(url) do
+    trimmed = String.trim(url)
+
+    cond do
+      trimmed == "" ->
+        nil
+
+      String.starts_with?(trimmed, "http://") or String.starts_with?(trimmed, "https://") ->
+        trimmed
+
+      String.starts_with?(trimmed, "/") ->
+        host = System.get_env("PHX_HOST")
+
+        if blank?(host) do
+          nil
+        else
+          "https://#{host}#{trimmed}"
+        end
+
+      true ->
+        nil
+    end
+  end
 
   defp persist_url(story_id, "headshot", target_id, url),
     do: Stories.set_character_headshot(story_id, target_id, url)
