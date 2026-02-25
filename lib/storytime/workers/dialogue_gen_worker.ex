@@ -6,6 +6,7 @@ defmodule Storytime.Workers.DialogueGenWorker do
   use Oban.Worker, queue: :generation, max_attempts: 4
 
   alias Storytime.Generation
+  alias Storytime.Notifier
   alias Storytime.Stories
   alias Storytime.Stories.Page
 
@@ -37,7 +38,7 @@ defmodule Storytime.Workers.DialogueGenWorker do
       _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, target_id, generation_job_id, 100)
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+      Notifier.broadcast("story:#{story_id}", "generation_completed", %{
         story_id: story_id,
         job_type: "dialogue",
         target_id: target_id,
@@ -326,7 +327,7 @@ defmodule Storytime.Workers.DialogueGenWorker do
              "source" => "dialogue_generation"
            }) do
         {:ok, job} ->
-          StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_started", %{
+          Notifier.broadcast("story:#{story_id}", "generation_started", %{
             story_id: story_id,
             job_type: "dialogue_tts",
             target_id: line.id,
@@ -347,7 +348,7 @@ defmodule Storytime.Workers.DialogueGenWorker do
 
   defp broadcast_created_lines(story_id, lines) do
     Enum.each(lines, fn line ->
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "dialogue_line_added", %{
+      Notifier.broadcast("story:#{story_id}", "dialogue_line_added", %{
         line: %{
           id: line.id,
           page_id: line.page_id,
@@ -392,7 +393,7 @@ defmodule Storytime.Workers.DialogueGenWorker do
     if story_id do
       _ = Stories.maybe_mark_story_ready(story_id)
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_failed", %{
+      Notifier.broadcast("story:#{story_id}", "generation_failed", %{
         story_id: story_id,
         job_type: "dialogue",
         target_id: target_id,
@@ -421,7 +422,7 @@ defmodule Storytime.Workers.DialogueGenWorker do
   defp blank?(value), do: value in [nil, ""]
 
   defp broadcast_progress(story_id, target_id, job_id, progress) do
-    StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_progress", %{
+    Notifier.broadcast("story:#{story_id}", "generation_progress", %{
       story_id: story_id,
       job_type: "dialogue",
       target_id: target_id,

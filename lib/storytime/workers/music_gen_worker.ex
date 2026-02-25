@@ -6,6 +6,7 @@ defmodule Storytime.Workers.MusicGenWorker do
   use Oban.Worker, queue: :generation, max_attempts: 5
 
   alias Storytime.Assets
+  alias Storytime.Notifier
   alias Storytime.Stories
 
   @sonauto_api_base_default "https://api.sonauto.ai/v1"
@@ -37,7 +38,7 @@ defmodule Storytime.Workers.MusicGenWorker do
             _ = Stories.maybe_mark_story_ready(story_id)
             broadcast_progress(story_id, target_id, generation_job_id, 100)
 
-            StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+            Notifier.broadcast("story:#{story_id}", "generation_completed", %{
               story_id: story_id,
               job_type: "music",
               target_id: target_id,
@@ -354,7 +355,7 @@ defmodule Storytime.Workers.MusicGenWorker do
       _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, target_id, generation_job_id, 100)
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+      Notifier.broadcast("story:#{story_id}", "generation_completed", %{
         story_id: story_id,
         job_type: "music",
         target_id: target_id,
@@ -408,7 +409,7 @@ defmodule Storytime.Workers.MusicGenWorker do
     if story_id do
       _ = Stories.maybe_mark_story_ready(story_id)
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_failed", %{
+      Notifier.broadcast("story:#{story_id}", "generation_failed", %{
         story_id: story_id,
         job_type: "music",
         target_id: target_id,
@@ -430,7 +431,7 @@ defmodule Storytime.Workers.MusicGenWorker do
   defp blank?(value), do: value in [nil, ""]
 
   defp broadcast_progress(story_id, target_id, job_id, progress) do
-    StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_progress", %{
+    Notifier.broadcast("story:#{story_id}", "generation_progress", %{
       story_id: story_id,
       job_type: "music",
       target_id: target_id,

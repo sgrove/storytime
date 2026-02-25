@@ -7,6 +7,7 @@ defmodule Storytime.Workers.ImageGenWorker do
   use Oban.Worker, queue: :generation, max_attempts: 5
 
   alias Storytime.Assets
+  alias Storytime.Notifier
   alias Storytime.Stories
 
   @openai_url "https://api.openai.com/v1/images/generations"
@@ -41,7 +42,7 @@ defmodule Storytime.Workers.ImageGenWorker do
             _ = Stories.maybe_mark_story_ready(story_id)
             broadcast_progress(story_id, type, target_id, generation_job_id, 100)
 
-            StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+            Notifier.broadcast("story:#{story_id}", "generation_completed", %{
               story_id: story_id,
               job_type: map_job_type(type),
               target_id: target_id,
@@ -298,7 +299,7 @@ defmodule Storytime.Workers.ImageGenWorker do
       _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, type, target_id, generation_job_id, 100)
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+      Notifier.broadcast("story:#{story_id}", "generation_completed", %{
         story_id: story_id,
         job_type: map_job_type(type),
         target_id: target_id,
@@ -332,7 +333,7 @@ defmodule Storytime.Workers.ImageGenWorker do
     if story_id do
       _ = Stories.maybe_mark_story_ready(story_id)
 
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_failed", %{
+      Notifier.broadcast("story:#{story_id}", "generation_failed", %{
         story_id: story_id,
         job_type: map_job_type(type),
         target_id: target_id,
@@ -358,7 +359,7 @@ defmodule Storytime.Workers.ImageGenWorker do
   defp blank?(value), do: value in [nil, ""]
 
   defp broadcast_progress(story_id, type, target_id, job_id, progress) do
-    StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_progress", %{
+    Notifier.broadcast("story:#{story_id}", "generation_progress", %{
       story_id: story_id,
       job_type: map_job_type(type),
       target_id: target_id,

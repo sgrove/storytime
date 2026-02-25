@@ -7,6 +7,7 @@ defmodule Storytime.Workers.DeployWorker do
 
   alias Storytime.Assets
   alias Storytime.Deploy.RenderDeploy
+  alias Storytime.Notifier
   alias Storytime.Stories
   alias Storytime.StoryPack
 
@@ -23,7 +24,7 @@ defmodule Storytime.Workers.DeployWorker do
          {:ok, deploy} <- RenderDeploy.create_story_site(story, subdomain),
          {:ok, _story} <- Stories.mark_story_deployed(story_id, deploy.site_id, deploy.url),
          :ok <- status_update(generation_job_id, :completed) do
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "deploy_completed", %{
+      Notifier.broadcast("story:#{story_id}", "deploy_completed", %{
         story_id: story_id,
         job_id: generation_job_id,
         url: deploy.url,
@@ -86,7 +87,7 @@ defmodule Storytime.Workers.DeployWorker do
     if is_binary(story_id), do: Stories.set_story_status(story_id, :ready)
 
     if story_id do
-      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "deploy_failed", %{
+      Notifier.broadcast("story:#{story_id}", "deploy_failed", %{
         story_id: story_id,
         job_id: generation_job_id,
         error: details.message,
