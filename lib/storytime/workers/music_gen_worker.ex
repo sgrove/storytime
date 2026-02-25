@@ -11,8 +11,11 @@ defmodule Storytime.Workers.MusicGenWorker do
 
   @sonauto_api_base_default "https://api.sonauto.ai/v1"
   @sonauto_poll_attempts_default 40
-  @sonauto_poll_sleep_ms_default 3_000
+  @sonauto_poll_sleep_ms_default 2_000
   @sonauto_request_timeout_ms_default 180_000
+  @sonauto_poll_request_timeout_ms_default 10_000
+  @sonauto_poll_max_elapsed_ms_default 180_000
+  @sonauto_poll_stale_ms_default 90_000
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -57,6 +60,11 @@ defmodule Storytime.Workers.MusicGenWorker do
   end
 
   def perform(args) when is_map(args), do: perform(%Oban.Job{args: args})
+
+  @doc false
+  def generate_song(prompt) when is_binary(prompt) do
+    maybe_sonauto(prompt)
+  end
 
   @doc false
   def reusable_track_audio(track, args) do
@@ -204,10 +212,17 @@ defmodule Storytime.Workers.MusicGenWorker do
 
   @doc false
   def extract_audio_url(body) when is_map(body) do
-    body["song_path"] || body["audio_url"] || body["url"] || body["download_url"]
+    body["song_path"] ||
+      first_song_path(body["song_paths"]) ||
+      body["audio_url"] ||
+      body["url"] ||
+      body["download_url"]
   end
 
   def extract_audio_url(_), do: nil
+
+  defp first_song_path([first | _]) when is_binary(first) and first != "", do: first
+  defp first_song_path(_), do: nil
 
   @doc false
   def invalid_tags_error?(%{"detail" => detail}) when is_list(detail) do
@@ -230,12 +245,81 @@ defmodule Storytime.Workers.MusicGenWorker do
     do: {:error, :sonauto_timeout}
 
   defp poll_sonauto_audio_url(base, headers, task_id, attempts_left, sleep_ms) do
+    now_ms = monotonic_ms()
+
+    poll_sonauto_audio_url(
+      base,
+      headers,
+      task_id,
+      attempts_left,
+      sleep_ms,
+      now_ms,
+      now_ms,
+      nil
+    )
+  end
+
+  defp poll_sonauto_audio_url(
+         _base,
+         _headers,
+         _task_id,
+         0,
+         _sleep_ms,
+         _started_ms,
+         _last_progress_ms,
+         _last_progress_key
+       ),
+       do: {:error, :sonauto_timeout}
+
+  defp poll_sonauto_audio_url(
+         base,
+         headers,
+         task_id,
+         attempts_left,
+         sleep_ms,
+         started_ms,
+         last_progress_ms,
+         last_progress_key
+       ) do
+    now_ms = monotonic_ms()
+
+    cond do
+      now_ms - started_ms >= sonauto_poll_max_elapsed_ms() ->
+        {:error, {:sonauto_timeout, :poll_elapsed}}
+
+      now_ms - last_progress_ms >= sonauto_poll_stale_ms() ->
+        {:error, {:sonauto_stalled, task_id}}
+
+      true ->
+        poll_sonauto_audio_url_request(
+          base,
+          headers,
+          task_id,
+          attempts_left,
+          sleep_ms,
+          started_ms,
+          last_progress_ms,
+          last_progress_key
+        )
+    end
+  end
+
+  defp poll_sonauto_audio_url_request(
+         base,
+         headers,
+         task_id,
+         attempts_left,
+         sleep_ms,
+         started_ms,
+         last_progress_ms,
+         last_progress_key
+       ) do
     status_url = "#{base}/generations/#{task_id}"
 
     case Req.get(status_url,
            headers: headers,
-           receive_timeout: sonauto_request_timeout_ms(),
-           pool_timeout: sonauto_request_timeout_ms(),
+           receive_timeout: sonauto_poll_request_timeout_ms(),
+           pool_timeout: sonauto_poll_request_timeout_ms(),
            connect_options: [timeout: 30_000],
            retry: false
          ) do
@@ -251,16 +335,59 @@ defmodule Storytime.Workers.MusicGenWorker do
             {:error, {:sonauto_failed, body}}
 
           status == :pending ->
+            progress_key = task_progress_key(body)
+
+            next_progress_ms =
+              if is_nil(last_progress_key) or progress_key != last_progress_key do
+                monotonic_ms()
+              else
+                last_progress_ms
+              end
+
             Process.sleep(sleep_ms)
-            poll_sonauto_audio_url(base, headers, task_id, attempts_left - 1, sleep_ms)
+
+            poll_sonauto_audio_url(
+              base,
+              headers,
+              task_id,
+              attempts_left - 1,
+              sleep_ms,
+              started_ms,
+              next_progress_ms,
+              progress_key
+            )
 
           true ->
             Process.sleep(sleep_ms)
-            poll_sonauto_audio_url(base, headers, task_id, attempts_left - 1, sleep_ms)
+
+            poll_sonauto_audio_url(
+              base,
+              headers,
+              task_id,
+              attempts_left - 1,
+              sleep_ms,
+              started_ms,
+              last_progress_ms,
+              last_progress_key
+            )
         end
 
       {:ok, %{status: status, body: body}} ->
         {:error, {:sonauto_poll_error, status, body}}
+
+      {:error, %Req.TransportError{reason: :timeout}} ->
+        Process.sleep(sleep_ms)
+
+        poll_sonauto_audio_url(
+          base,
+          headers,
+          task_id,
+          attempts_left - 1,
+          sleep_ms,
+          started_ms,
+          last_progress_ms,
+          last_progress_key
+        )
 
       {:error, reason} ->
         {:error, reason}
@@ -315,6 +442,30 @@ defmodule Storytime.Workers.MusicGenWorker do
     )
   end
 
+  defp sonauto_poll_request_timeout_ms do
+    timeout_from_env(
+      System.get_env("SONAUTO_POLL_REQUEST_TIMEOUT_MS"),
+      @sonauto_poll_request_timeout_ms_default,
+      5_000
+    )
+  end
+
+  defp sonauto_poll_max_elapsed_ms do
+    timeout_from_env(
+      System.get_env("SONAUTO_POLL_MAX_ELAPSED_MS"),
+      @sonauto_poll_max_elapsed_ms_default,
+      30_000
+    )
+  end
+
+  defp sonauto_poll_stale_ms do
+    timeout_from_env(
+      System.get_env("SONAUTO_POLL_STALE_MS"),
+      @sonauto_poll_stale_ms_default,
+      15_000
+    )
+  end
+
   defp timeout_from_env(raw_value, default_value, min_value) when is_binary(raw_value) do
     case Integer.parse(String.trim(raw_value)) do
       {value, ""} when value >= min_value -> value
@@ -332,6 +483,9 @@ defmodule Storytime.Workers.MusicGenWorker do
       normalized in ["complete", "completed", "succeeded", "done"] ->
         :complete
 
+      normalized in ["success", "successful", "finished"] ->
+        :complete
+
       normalized in ["failed", "error", "cancelled", "canceled"] ->
         :failed
 
@@ -344,6 +498,19 @@ defmodule Storytime.Workers.MusicGenWorker do
   end
 
   def normalize_task_status(_), do: :pending
+
+  defp task_progress_key(body) when is_map(body) do
+    %{
+      status: body["status"],
+      progress: body["progress"] || body["percent"] || body["percentage"],
+      updated_at: body["updated_at"] || body["updatedAt"],
+      eta: body["eta"] || body["eta_seconds"]
+    }
+  end
+
+  defp task_progress_key(_), do: nil
+
+  defp monotonic_ms, do: System.monotonic_time(:millisecond)
 
   @doc false
   def existing_track_audio(track) do
@@ -397,6 +564,7 @@ defmodule Storytime.Workers.MusicGenWorker do
   def non_retryable_reason?({:sonauto_error, status, _}) when status in 400..499, do: true
   def non_retryable_reason?({:sonauto_poll_error, status, _}) when status in 400..499, do: true
   def non_retryable_reason?({:sonauto_failed, _}), do: true
+  def non_retryable_reason?({:sonauto_stalled, _}), do: true
   def non_retryable_reason?(_), do: false
 
   defp handle_failure(args, reason) do

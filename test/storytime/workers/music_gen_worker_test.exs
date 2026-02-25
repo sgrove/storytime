@@ -14,6 +14,11 @@ defmodule Storytime.Workers.MusicGenWorkerTest do
     assert "https://cdn.example/song.mp3" ==
              MusicGenWorker.extract_audio_url(%{"song_path" => "https://cdn.example/song.mp3"})
 
+    assert "https://cdn.example/song-list.mp3" ==
+             MusicGenWorker.extract_audio_url(%{
+               "song_paths" => ["https://cdn.example/song-list.mp3"]
+             })
+
     assert "https://cdn.example/audio.mp3" ==
              MusicGenWorker.extract_audio_url(%{"audio_url" => "https://cdn.example/audio.mp3"})
 
@@ -28,6 +33,7 @@ defmodule Storytime.Workers.MusicGenWorkerTest do
     assert :pending == MusicGenWorker.normalize_task_status("queued")
     assert :complete == MusicGenWorker.normalize_task_status("complete")
     assert :complete == MusicGenWorker.normalize_task_status("succeeded")
+    assert :complete == MusicGenWorker.normalize_task_status("SUCCESS")
     assert :failed == MusicGenWorker.normalize_task_status("failed")
     assert :failed == MusicGenWorker.normalize_task_status("cancelled")
   end
@@ -38,8 +44,10 @@ defmodule Storytime.Workers.MusicGenWorkerTest do
     assert MusicGenWorker.non_retryable_reason?({:sonauto_error, 422, %{}})
     assert MusicGenWorker.non_retryable_reason?({:sonauto_poll_error, 404, %{}})
     assert MusicGenWorker.non_retryable_reason?({:sonauto_failed, %{}})
+    assert MusicGenWorker.non_retryable_reason?({:sonauto_stalled, "task-1"})
 
     refute MusicGenWorker.non_retryable_reason?(:sonauto_timeout)
+    refute MusicGenWorker.non_retryable_reason?({:sonauto_timeout, :poll_elapsed})
     refute MusicGenWorker.non_retryable_reason?({:sonauto_error, 503, %{}})
   end
 
