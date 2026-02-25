@@ -402,6 +402,45 @@
         flex: 1 1 auto;
       }
 
+      .tag-picker {
+        position: relative;
+      }
+
+      .tag-suggest {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        right: 0;
+        max-height: 260px;
+        overflow-y: auto;
+        border: 1px solid #bea882;
+        border-radius: 10px;
+        background: #fffdf6;
+        box-shadow: 0 8px 18px rgba(26, 16, 8, 0.16);
+        z-index: 30;
+        padding: 6px;
+      }
+
+      .tag-suggest-item {
+        width: 100%;
+        display: block;
+        text-align: left;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: #3f2a12;
+        font: inherit;
+        font-size: 13px;
+        padding: 7px 9px;
+        cursor: pointer;
+      }
+
+      .tag-suggest-item:hover,
+      .tag-suggest-item.active {
+        background: #ffe8b2;
+        border-color: #b28a45;
+      }
+
       .tag-chips {
         display: flex;
         gap: 6px;
@@ -677,9 +716,13 @@
         voiceLoadError: null,
         musicTagOptions: [],
         musicTagLookup: {},
+        musicTagIndex: [],
         musicTagLoadError: null,
         musicDraftTags: {},
-        newTrackTags: []
+        newTrackTags: [],
+        musicTagSuggestScope: null,
+        musicTagSuggestItems: [],
+        musicTagSuggestActive: -1
       };
 
       const $ = (id) => document.getElementById(id);
@@ -783,18 +826,27 @@
           const payload = await api("/api/music-tags");
           const tags = Array.isArray(payload.tags) ? payload.tags : [];
           const lookup = {};
+          const index = [];
 
           for (const rawTag of tags) {
             const normalized = String(rawTag || "").trim();
             if (!normalized) continue;
-            lookup[normalized.toLowerCase()] = normalized;
+            const lower = normalized.toLowerCase();
+            lookup[lower] = normalized;
+            index.push({
+              value: normalized,
+              lower,
+              tokens: lower.split(/[^a-z0-9]+/g).filter(Boolean)
+            });
           }
 
           state.musicTagOptions = tags;
           state.musicTagLookup = lookup;
+          state.musicTagIndex = index;
         } catch (err) {
           state.musicTagOptions = [];
           state.musicTagLookup = {};
+          state.musicTagIndex = [];
           state.musicTagLoadError = err.message || "failed_to_load_music_tags";
         }
 
@@ -1096,17 +1148,154 @@
         return (tags || []).join(", ");
       }
 
+      function tagInputIdForScope(scope) {
+        if (scope === "new") return "newTrackTagInput";
+        return `track-tag-input-${scope.replace("track:", "")}`;
+      }
+
+      function suggestionBoxIdForScope(scope) {
+        if (scope === "new") return "tag-suggest-new";
+        return `tag-suggest-track-${scope.replace("track:", "")}`;
+      }
+
+      function tagsForScope(scope) {
+        if (scope === "new") return state.newTrackTags || [];
+        const trackId = scope.replace("track:", "");
+        return state.musicDraftTags[trackId] || [];
+      }
+
+      function getMusicTagSuggestions(query, scope, limit = 12) {
+        const q = String(query || "").trim().toLowerCase();
+        if (q.length < 2) return [];
+
+        const selected = new Set(tagsForScope(scope).map((tag) => String(tag || "").toLowerCase()));
+        const queryParts = q.split(/\s+/g).filter(Boolean);
+
+        const ranked = [];
+
+        for (const item of state.musicTagIndex || []) {
+          if (!item || !item.lower || selected.has(item.lower)) continue;
+
+          let score = null;
+
+          if (item.lower === q) {
+            score = 0;
+          } else if (item.lower.startsWith(q)) {
+            score = 1;
+          } else if ((item.tokens || []).some((token) => token.startsWith(q))) {
+            score = 2;
+          } else if (queryParts.length > 1 && queryParts.every((part) => item.lower.includes(part))) {
+            score = 3;
+          } else if (item.lower.includes(q)) {
+            score = 4;
+          }
+
+          if (score === null) continue;
+
+          ranked.push({
+            value: item.value,
+            score,
+            len: item.value.length
+          });
+        }
+
+        ranked.sort((a, b) => a.score - b.score || a.len - b.len || a.value.localeCompare(b.value));
+        return ranked.slice(0, limit).map((entry) => entry.value);
+      }
+
+      function closeMusicTagSuggestions() {
+        state.musicTagSuggestScope = null;
+        state.musicTagSuggestItems = [];
+        state.musicTagSuggestActive = -1;
+
+        document.querySelectorAll(".tag-suggest").forEach((node) => {
+          node.hidden = true;
+          node.innerHTML = "";
+        });
+      }
+
+      function renderMusicTagSuggestions(scope) {
+        const input = $(tagInputIdForScope(scope));
+        const box = $(suggestionBoxIdForScope(scope));
+        if (!input || !box) return;
+
+        const suggestions = getMusicTagSuggestions(input.value, scope, 14);
+        state.musicTagSuggestScope = scope;
+        state.musicTagSuggestItems = suggestions;
+
+        if (!suggestions.length) {
+          state.musicTagSuggestActive = -1;
+          box.hidden = true;
+          box.innerHTML = "";
+          return;
+        }
+
+        const active = Math.max(0, Math.min(state.musicTagSuggestActive, suggestions.length - 1));
+        state.musicTagSuggestActive = active;
+
+        box.innerHTML = suggestions.map((tag, idx) => `
+          <button
+            type="button"
+            class="tag-suggest-item ${idx === active ? "active" : ""}"
+            data-action="pick-tag-suggestion"
+            data-scope="${esc(scope)}"
+            data-tag="${esc(tag)}"
+            title="${esc(tag)}"
+          >
+            ${esc(tag)}
+          </button>
+        `).join("");
+
+        box.hidden = false;
+      }
+
+      function openMusicTagSuggestions(scope) {
+        state.musicTagSuggestScope = scope;
+        state.musicTagSuggestActive = 0;
+        renderMusicTagSuggestions(scope);
+      }
+
+      function moveMusicTagSuggestionSelection(scope, delta) {
+        if (state.musicTagSuggestScope !== scope) {
+          state.musicTagSuggestScope = scope;
+          state.musicTagSuggestActive = 0;
+        }
+
+        if (!state.musicTagSuggestItems.length) {
+          renderMusicTagSuggestions(scope);
+          return;
+        }
+
+        const total = state.musicTagSuggestItems.length;
+        const next = Math.max(0, Math.min(total - 1, (state.musicTagSuggestActive || 0) + delta));
+        state.musicTagSuggestActive = next;
+        renderMusicTagSuggestions(scope);
+      }
+
+      function resolvedMusicTagForScope(scope, rawTag) {
+        const token = String(rawTag || "").trim();
+        if (!token) return null;
+
+        const exact = state.musicTagLookup[token.toLowerCase()];
+        if (exact) return exact;
+
+        const suggestions = getMusicTagSuggestions(token, scope, 1);
+        return suggestions[0] || null;
+      }
+
       function addMusicTagToScope(scope, rawTag) {
         const token = String(rawTag || "").trim();
         if (!token) return;
 
-        const canonical = state.musicTagLookup[token.toLowerCase()];
+        const canonical = resolvedMusicTagForScope(scope, token);
         if (!canonical) throw new Error("select_a_valid_music_tag");
 
         if (scope === "new") {
           state.newTrackTags = normalizeMusicTags([...(state.newTrackTags || []), canonical]);
           const input = $("newTrackTagInput");
           if (input) input.value = "";
+          state.musicTagSuggestActive = 0;
+          renderMusicTagSuggestions(scope);
           return;
         }
 
@@ -1115,6 +1304,8 @@
         state.musicDraftTags[trackId] = normalizeMusicTags([...current, canonical]);
         const input = $(`track-tag-input-${trackId}`);
         if (input) input.value = "";
+        state.musicTagSuggestActive = 0;
+        renderMusicTagSuggestions(scope);
       }
 
       function removeMusicTagFromScope(scope, tag) {
@@ -1123,12 +1314,19 @@
 
         if (scope === "new") {
           state.newTrackTags = (state.newTrackTags || []).filter((entry) => entry.toLowerCase() !== normalized);
+          if (state.musicTagSuggestScope === scope) {
+            renderMusicTagSuggestions(scope);
+          }
           return;
         }
 
         const trackId = scope.replace("track:", "");
         const current = state.musicDraftTags[trackId] || [];
         state.musicDraftTags[trackId] = current.filter((entry) => entry.toLowerCase() !== normalized);
+
+        if (state.musicTagSuggestScope === scope) {
+          renderMusicTagSuggestions(scope);
+        }
       }
 
       function renderTagChips(tags, scope) {
@@ -1140,6 +1338,29 @@
             <button type="button" data-action="remove-track-tag" data-scope="${esc(scope)}" data-tag="${esc(tag)}" aria-label="Remove ${esc(tag)}">×</button>
           </span>
         `).join("")}</div>`;
+      }
+
+      function renderMusicTagPicker(scope, placeholder) {
+        const inputId = tagInputIdForScope(scope);
+        const suggestId = suggestionBoxIdForScope(scope);
+
+        return `
+          <div class="tag-picker" data-scope="${esc(scope)}">
+            <div class="tag-input-row">
+              <input
+                id="${esc(inputId)}"
+                data-role="tag-input"
+                data-scope="${esc(scope)}"
+                placeholder="${esc(placeholder)}"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button class="btn flat" data-action="add-track-tag" data-scope="${esc(scope)}">Add Top Match</button>
+            </div>
+            <div class="tag-suggest" id="${esc(suggestId)}" hidden></div>
+            <div class="hint" style="margin-top:6px;">Type 2+ letters, then Enter to add the best match. Arrow keys navigate.</div>
+          </div>
+        `;
       }
 
       function latestJob(jobType, targetId) {
@@ -1549,7 +1770,6 @@
         if (!state.currentStory) return '<div class="hint">Pick a story first.</div>';
         const tracks = currentTracks();
         syncTrackTagDrafts(tracks);
-        const musicTagOptions = state.musicTagOptions || [];
 
         return `
           <div class="stack">
@@ -1559,10 +1779,7 @@
                 <div class="field"><label>Title</label><input id="newTrackTitle" placeholder="Moonlight Lullaby" /></div>
                 <div class="field">
                   <label>Tags (Sonauto v3)</label>
-                  <div class="tag-input-row">
-                    <input id="newTrackTagInput" list="musicTagOptions" placeholder="Type to search tags..." />
-                    <button class="btn flat" data-action="add-track-tag" data-scope="new">Add Tag</button>
-                  </div>
+                  ${renderMusicTagPicker("new", "Search tags (e.g., cinematic, piano, tension)")}
                   ${renderTagChips(state.newTrackTags || [], "new")}
                 </div>
               </div>
@@ -1579,10 +1796,7 @@
                   <div class="field"><label>Title</label><input id="track-title-${t.id}" value="${esc(t.title)}" /></div>
                   <div class="field">
                     <label>Tags (Sonauto v3)</label>
-                    <div class="tag-input-row">
-                      <input id="track-tag-input-${t.id}" list="musicTagOptions" placeholder="Type to search tags..." />
-                      <button class="btn flat" data-action="add-track-tag" data-scope="track:${t.id}">Add Tag</button>
-                    </div>
+                    ${renderMusicTagPicker(`track:${t.id}`, "Search tags")}
                     ${renderTagChips(draftTags, `track:${t.id}`)}
                   </div>
                 </div>
@@ -1624,9 +1838,6 @@
               </div>
             `;
             }).join("")}
-            <datalist id="musicTagOptions">
-              ${musicTagOptions.map((tag) => `<option value="${esc(tag)}"></option>`).join("")}
-            </datalist>
           </div>
         `;
       }
@@ -2071,15 +2282,38 @@
           if (action === "add-track-tag") {
             refreshAfterAction = false;
             const scope = node.dataset.scope || "";
-            const inputId = scope === "new" ? "newTrackTagInput" : `track-tag-input-${scope.replace("track:", "")}`;
-            addMusicTagToScope(scope, $(inputId)?.value || "");
+            addMusicTagToScope(scope, $(tagInputIdForScope(scope))?.value || "");
             renderTabContent();
+            const input = $(tagInputIdForScope(scope));
+            if (input) {
+              input.focus();
+              openMusicTagSuggestions(scope);
+            }
+          }
+
+          if (action === "pick-tag-suggestion") {
+            refreshAfterAction = false;
+            const scope = node.dataset.scope || "";
+            const tag = node.dataset.tag || "";
+            addMusicTagToScope(scope, tag);
+            renderTabContent();
+            const input = $(tagInputIdForScope(scope));
+            if (input) {
+              input.focus();
+              openMusicTagSuggestions(scope);
+            }
           }
 
           if (action === "remove-track-tag") {
             refreshAfterAction = false;
             removeMusicTagFromScope(node.dataset.scope || "", node.dataset.tag || "");
             renderTabContent();
+            const scope = node.dataset.scope || "";
+            const input = $(tagInputIdForScope(scope));
+            if (input) {
+              input.focus();
+              openMusicTagSuggestions(scope);
+            }
           }
 
           if (action === "delete-track") await push("delete_music_track", { id: node.dataset.id });
@@ -2220,26 +2454,72 @@
         renderJobs();
       });
 
-      document.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter") return;
+      document.body.addEventListener("focusin", (event) => {
         const target = event.target;
         if (!(target instanceof HTMLInputElement)) return;
+        if (target.dataset.role !== "tag-input") return;
+        const scope = target.dataset.scope || "";
+        openMusicTagSuggestions(scope);
+      });
 
-        if (target.id === "newTrackTagInput") {
+      document.body.addEventListener("input", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        if (target.dataset.role !== "tag-input") return;
+        const scope = target.dataset.scope || "";
+        state.musicTagSuggestActive = 0;
+        renderMusicTagSuggestions(scope);
+      });
+
+      document.addEventListener("mousedown", (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (target.closest(".tag-picker")) return;
+        closeMusicTagSuggestions();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        if (target.dataset.role !== "tag-input") return;
+
+        const scope = target.dataset.scope || "";
+
+        if (event.key === "ArrowDown") {
           event.preventDefault();
-          try {
-            addMusicTagToScope("new", target.value || "");
-            renderTabContent();
-          } catch (_err) {}
+          moveMusicTagSuggestionSelection(scope, 1);
           return;
         }
 
-        if (target.id.startsWith("track-tag-input-")) {
+        if (event.key === "ArrowUp") {
           event.preventDefault();
-          const trackId = target.id.replace("track-tag-input-", "");
+          moveMusicTagSuggestionSelection(scope, -1);
+          return;
+        }
+
+        if (event.key === "Escape") {
+          closeMusicTagSuggestions();
+          return;
+        }
+
+        if (event.key === "Enter" || event.key === "Tab") {
+          if (state.musicTagSuggestScope !== scope) return;
+          if (!state.musicTagSuggestItems.length) return;
+
+          const picked =
+            state.musicTagSuggestItems[Math.max(0, Math.min(state.musicTagSuggestActive, state.musicTagSuggestItems.length - 1))];
+          if (!picked) return;
+
+          event.preventDefault();
+
           try {
-            addMusicTagToScope(`track:${trackId}`, target.value || "");
+            addMusicTagToScope(scope, picked);
             renderTabContent();
+            const input = $(tagInputIdForScope(scope));
+            if (input) {
+              input.focus();
+              openMusicTagSuggestions(scope);
+            }
           } catch (_err) {}
         }
       });
