@@ -1767,6 +1767,15 @@
               ? humanSeconds(oban.available_in_seconds)
               : null;
           const showWorkerError = status !== "completed" && oban && oban.last_error;
+          const recoveredAfterRetries =
+            status === "completed" &&
+            oban &&
+            typeof oban.errors_count === "number" &&
+            oban.errors_count > 0;
+          const retryFailures =
+            recoveredAfterRetries && typeof oban.errors_count === "number"
+              ? oban.errors_count
+              : 0;
           const age = typeof job.age_seconds === "number" ? humanSeconds(job.age_seconds) : null;
           const queuePosition = typeof job.queue_position === "number" ? job.queue_position : null;
           const preview = compactText(job.text_preview, 115);
@@ -1790,6 +1799,7 @@
               ${typeof progress === "number" ? `<div class="progress-bar"><div class="progress-fill" style="width:${Math.min(100, progress)}%"></div></div><div class="meta">${progress}%</div>` : ""}
               ${obanMetaParts.length ? `<div class="meta">${esc(obanMetaParts.join(" • "))}</div>` : ""}
               ${wait ? `<div class="meta">next retry window: ${esc(wait)}</div>` : ""}
+              ${recoveredAfterRetries ? `<div class="meta" style="color:#6c4d1f;">Recovered after ${retryFailures} prior ${retryFailures === 1 ? "failure" : "failures"}${oban && oban.last_error ? `; last failure: ${esc(compactText(oban.last_error, 160))}` : ""}</div>` : ""}
               ${showWorkerError ? `<div class="meta" style="color:#872d1a;">worker error: ${esc(compactText(oban.last_error, 180))}</div>` : ""}
               ${job.likely_stuck ? `<div class="meta" style="color:#872d1a;">Likely stuck execution. Retry to enqueue a fresh attempt.</div>` : ""}
               ${job.error ? `<div style="color:#872d1a;">${esc(job.error)}</div>` : ""}
