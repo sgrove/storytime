@@ -13,6 +13,7 @@ defmodule Storytime.Workers.ImageGenWorker do
   @openai_image_model "gpt-image-1.5"
   @headshot_image_size "1024x1024"
   @scene_image_size "1536x1024"
+  @openai_image_timeout_ms_default 180_000
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -116,6 +117,22 @@ defmodule Storytime.Workers.ImageGenWorker do
   @doc false
   def openai_image_model, do: @openai_image_model
 
+  @doc false
+  def openai_image_timeout_ms do
+    timeout_from_env(System.get_env("OPENAI_IMAGE_TIMEOUT_MS"), @openai_image_timeout_ms_default)
+  end
+
+  @doc false
+  def timeout_from_env(raw_value, default_ms)
+      when is_binary(raw_value) and is_integer(default_ms) do
+    case Integer.parse(String.trim(raw_value)) do
+      {value, ""} when value >= 30_000 -> value
+      _ -> default_ms
+    end
+  end
+
+  def timeout_from_env(_raw_value, default_ms), do: default_ms
+
   defp generate_image(prompt, size) do
     case call_openai_image(prompt, size) do
       {:ok, bytes} -> {:ok, bytes, "openai"}
@@ -164,7 +181,11 @@ defmodule Storytime.Workers.ImageGenWorker do
       {"content-type", "application/json"}
     ]
 
-    case Req.post(@openai_url, json: body, headers: headers) do
+    case Req.post(@openai_url,
+           json: body,
+           headers: headers,
+           receive_timeout: openai_image_timeout_ms()
+         ) do
       {:ok, %{status: 200, body: %{"data" => [%{"b64_json" => b64} | _]}}} ->
         case Base.decode64(b64) do
           {:ok, bytes} -> {:ok, bytes}

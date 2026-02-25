@@ -7,6 +7,15 @@ defmodule Storytime.Workers.ImageGenWorkerTest do
     assert ImageGenWorker.image_size_for("headshot") == "1024x1024"
     assert ImageGenWorker.image_size_for("scene") == "1536x1024"
     assert ImageGenWorker.openai_image_model() == "gpt-image-1.5"
+    assert ImageGenWorker.openai_image_timeout_ms() >= 30_000
+  end
+
+  test "parses image timeout values with sane fallback" do
+    assert ImageGenWorker.timeout_from_env("180000", 120_000) == 180_000
+    assert ImageGenWorker.timeout_from_env("   240000   ", 120_000) == 240_000
+    assert ImageGenWorker.timeout_from_env("not-a-number", 120_000) == 120_000
+    assert ImageGenWorker.timeout_from_env("12000", 120_000) == 120_000
+    assert ImageGenWorker.timeout_from_env(nil, 120_000) == 120_000
   end
 
   test "falls back from legacy 512x512 headshot size on openai invalid size error" do
