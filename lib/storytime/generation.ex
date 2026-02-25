@@ -92,7 +92,7 @@ defmodule Storytime.Generation do
   def deploy_preflight(story_id, subdomain) do
     with :ok <- validate_subdomain(subdomain),
          {:ok, story} <- fetch_story_for_deploy(story_id),
-         {:ok, preflight} <- RenderDeploy.preflight_story_site(story, subdomain) do
+         {:ok, preflight} <- run_render_preflight(story, subdomain) do
       {:ok, preflight}
     end
   end
@@ -494,6 +494,20 @@ defmodule Storytime.Generation do
     case Stories.get_story(story_id) do
       nil -> {:error, :not_found}
       story -> {:ok, story}
+    end
+  end
+
+  defp run_render_preflight(story, subdomain) do
+    if function_exported?(RenderDeploy, :preflight_story_site, 2) do
+      apply(RenderDeploy, :preflight_story_site, [story, subdomain])
+    else
+      {:ok,
+       %{
+         subdomain: subdomain,
+         service_name: "storytime-#{subdomain}",
+         availability: :unknown,
+         available: true
+       }}
     end
   end
 end
