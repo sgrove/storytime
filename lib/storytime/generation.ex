@@ -127,19 +127,16 @@ defmodule Storytime.Generation do
     with story when not is_nil(story) <- Stories.load_story_graph(story_id) do
       jobs =
         Enum.flat_map(story.pages, fn p ->
-          narration =
-            if missing_narration_audio?(p) and text_present?(p.narration_text),
-              do: [{:narration_tts, p.id}],
-              else: []
-
-          dialogue =
-            Enum.flat_map(p.dialogue_lines, fn line ->
-              if missing_dialogue_audio?(line) and text_present?(line.text),
-                do: [{:dialogue_tts, line.id}],
-                else: []
+          dialogue_missing =
+            Enum.any?(p.dialogue_lines || [], fn line ->
+              missing_dialogue_audio?(line) and text_present?(line.text)
             end)
 
-          narration ++ dialogue
+          needs_page_voice_mix =
+            text_present?(p.narration_text) and
+              (missing_narration_audio?(p) or dialogue_missing)
+
+          if needs_page_voice_mix, do: [{:narration_tts, p.id}], else: []
         end)
 
       wrap_jobs(jobs)
@@ -255,6 +252,8 @@ defmodule Storytime.Generation do
   def validate_single_job(story, :dialogue_tts, target_id) do
     with {:ok, line} <- find_dialogue_line(story, target_id),
          true <- text_present?(line.text) or {:error, :empty_text},
+         {:ok, page} <- find_page_for_line(story, target_id),
+         true <- text_present?(page.narration_text) or {:error, :missing_page_narration_text},
          {:ok, character} <- find_character(story, line.character_id),
          true <- not blank?(character.voice_id) or {:error, :missing_character_voice_id} do
       :ok
@@ -442,6 +441,17 @@ defmodule Storytime.Generation do
       |> Enum.find(&(&1.id == line_id))
 
     if line, do: {:ok, line}, else: {:error, :invalid_target}
+  end
+
+  defp find_page_for_line(story, line_id) do
+    page =
+      story.pages
+      |> List.wrap()
+      |> Enum.find(fn entry ->
+        Enum.any?(entry.dialogue_lines || [], &(&1.id == line_id))
+      end)
+
+    if page, do: {:ok, page}, else: {:error, :invalid_target}
   end
 
   defp has_voiced_characters?(story) do

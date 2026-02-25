@@ -84,4 +84,35 @@ defmodule Storytime.Workers.DialogueGenWorkerTest do
                )
     end
   end
+
+  describe "normalize_dialogue_inputs/1" do
+    test "accepts tuple and map entries and normalizes to voice_id/text maps" do
+      inputs = [
+        {"voice-1", " Hello "},
+        %{"voice_id" => "voice-2", "text" => "World"},
+        %{voice_id: "voice-3", text: "Again"}
+      ]
+
+      assert {:ok, normalized} = DialogueGenWorker.normalize_dialogue_inputs(inputs)
+
+      assert normalized == [
+               %{voice_id: "voice-1", text: "Hello"},
+               %{voice_id: "voice-2", text: "World"},
+               %{voice_id: "voice-3", text: "Again"}
+             ]
+    end
+
+    test "rejects empty or invalid entries" do
+      assert {:error, :empty_dialogue_inputs} = DialogueGenWorker.normalize_dialogue_inputs([])
+
+      assert {:error, :invalid_dialogue_input_voice_id} =
+               DialogueGenWorker.normalize_dialogue_inputs([{nil, "hi"}])
+
+      assert {:error, :invalid_dialogue_input_text} =
+               DialogueGenWorker.normalize_dialogue_inputs([{"voice-1", ""}])
+
+      assert {:error, :invalid_dialogue_input} =
+               DialogueGenWorker.normalize_dialogue_inputs([:bad])
+    end
+  end
 end

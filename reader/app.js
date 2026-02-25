@@ -886,21 +886,35 @@ async function playSingleAudioItem(item, token) {
   state.audio.error = null;
   renderAll();
 
+  let playbackStartMs = 0;
+  let playbackEndMs = null;
+
   if (item.timingsUrl) {
     const timings = await fetchNormalizedTimings(item.timingsUrl, item.text);
     if (token !== state.audio.token) return { tag: 'error', error: 'audio_cancelled' };
 
     if (timings.tag === 'ok') {
       state.audio.currentFlattened = flattenTimings(timings.value);
+      playbackStartMs = Number.isFinite(Number(timings.value.audioStartMs))
+        ? Math.max(0, Number(timings.value.audioStartMs))
+        : 0;
+
+      const candidateEndMs = Number.isFinite(Number(timings.value.audioEndMs))
+        ? Math.max(0, Number(timings.value.audioEndMs))
+        : 0;
+
+      playbackEndMs = candidateEndMs > playbackStartMs ? candidateEndMs : null;
+      state.audio.currentGlobalOffsetMs = playbackStartMs > 0 ? -playbackStartMs : 0;
     } else {
       state.audio.warning = timings.error;
       state.audio.currentFlattened = null;
+      state.audio.currentGlobalOffsetMs = 0;
     }
   }
 
   voiceAudio.pause();
   voiceAudio.src = item.audioUrl;
-  voiceAudio.currentTime = 0;
+  voiceAudio.currentTime = playbackStartMs / 1000;
   voiceAudio.volume = Number(dom.voiceVolume.value || 0.9);
 
   try {
@@ -921,7 +935,7 @@ async function playSingleAudioItem(item, token) {
         resolve(result);
       };
 
-      const onEnded = () => {
+      const finishSuccess = () => {
         if (token !== state.audio.token) {
           settle({ tag: 'error', error: 'audio_cancelled' });
           return;
@@ -935,6 +949,10 @@ async function playSingleAudioItem(item, token) {
         state.audio.currentGlobalOffsetMs = 0;
         renderAll();
         settle({ tag: 'ok' });
+      };
+
+      const onEnded = () => {
+        finishSuccess();
       };
 
       const onError = () => {
@@ -954,6 +972,14 @@ async function playSingleAudioItem(item, token) {
         settle({ tag: 'error', error: 'audio_cancelled' });
       };
 
+      const onTimeUpdate = () => {
+        if (playbackEndMs == null) return;
+        if (voiceAudio.currentTime * 1000 >= playbackEndMs - 20) {
+          voiceAudio.pause();
+          finishSuccess();
+        }
+      };
+
       const cleanup = () => {
         if (cancellationTimer) {
           window.clearInterval(cancellationTimer);
@@ -964,12 +990,14 @@ async function playSingleAudioItem(item, token) {
         voiceAudio.removeEventListener('error', onError);
         voiceAudio.removeEventListener('abort', onAbort);
         voiceAudio.removeEventListener('emptied', onAbort);
+        voiceAudio.removeEventListener('timeupdate', onTimeUpdate);
       };
 
       voiceAudio.addEventListener('ended', onEnded, { once: true });
       voiceAudio.addEventListener('error', onError, { once: true });
       voiceAudio.addEventListener('abort', onAbort, { once: true });
       voiceAudio.addEventListener('emptied', onAbort, { once: true });
+      voiceAudio.addEventListener('timeupdate', onTimeUpdate);
 
       cancellationTimer = window.setInterval(() => {
         if (token !== state.audio.token) {

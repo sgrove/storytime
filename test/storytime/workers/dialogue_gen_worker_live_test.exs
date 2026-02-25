@@ -12,14 +12,8 @@ defmodule Storytime.Workers.DialogueGenWorkerLiveTest do
       {:skip, "ELEVENLABS_API_KEY not configured"}
     else
       inputs = [
-        %{
-          text: "Hello there, my name is Alice and I am happy to meet you.",
-          voice_id: "Xb7hH8MSUJpSbSDYk0k2"
-        },
-        %{
-          text: "Let's read this story together.",
-          voice_id: "Xb7hH8MSUJpSbSDYk0k2"
-        }
+        {"Xb7hH8MSUJpSbSDYk0k2", "Hello there, my name is Alice and I am happy to meet you."},
+        {"Xb7hH8MSUJpSbSDYk0k2", "Let's read this story together."}
       ]
 
       assert {:ok, payload} = DialogueGenWorker.request_dialogue_timestamps_live(api_key, inputs)

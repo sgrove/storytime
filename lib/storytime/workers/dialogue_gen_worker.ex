@@ -1,16 +1,15 @@
 defmodule Storytime.Workers.DialogueGenWorker do
   @moduledoc """
-  Generates page dialogue text via LLM and immediately queues dialogue TTS jobs.
+  Generates page dialogue text via LLM and immediately queues a single page
+  voice-mix generation job (narration + all dialogue) per page.
   """
 
   use Oban.Worker, queue: :generation, max_attempts: 4
 
-  alias Storytime.Assets
   alias Storytime.Generation
   alias Storytime.Notifier
   alias Storytime.Stories
   alias Storytime.Stories.Page
-  alias Storytime.WordTimings
 
   @openai_chat_url "https://api.openai.com/v1/chat/completions"
   @elevenlabs_dialogue_url "https://api.elevenlabs.io/v1/text-to-dialogue/with-timestamps"
@@ -36,11 +35,8 @@ defmodule Storytime.Workers.DialogueGenWorker do
            Stories.replace_page_dialogue_lines(story_id, target_id, generated_lines),
          :ok <- broadcast_created_lines(story_id, created_lines),
          :ok <- emit_progress(story_id, target_id, generation_job_id, 65),
-         {:ok, timed_lines} <-
-           persist_page_dialogue_timings(story_id, created_lines, story.characters),
-         :ok <- broadcast_timing_updates(story_id, timed_lines),
+         {:ok, page_audio_job} <- enqueue_page_voice_tts(story_id, target_id),
          :ok <- emit_progress(story_id, target_id, generation_job_id, 75),
-         {:ok, queued_jobs} <- enqueue_tts(story_id, created_lines),
          :ok <- emit_progress(story_id, target_id, generation_job_id, 92),
          :ok <- mark_completed(generation_job_id) do
       _ = Stories.maybe_mark_story_ready(story_id)
@@ -51,12 +47,12 @@ defmodule Storytime.Workers.DialogueGenWorker do
         job_type: "dialogue",
         target_id: target_id,
         job_id: generation_job_id,
-        queued_tts_jobs: Enum.map(queued_jobs, & &1.id),
+        queued_tts_jobs: [page_audio_job.id],
         generated_line_ids: Enum.map(created_lines, & &1.id),
-        timed_line_ids: Enum.map(timed_lines, & &1.id)
+        timing_mode: "page_voice_mix"
       })
 
-      {:ok, %{queued_tts_jobs: length(queued_jobs), generated_lines: length(created_lines)}}
+      {:ok, %{queued_tts_jobs: 1, generated_lines: length(created_lines)}}
     else
       {:error, reason} ->
         handle_failure(args, reason)
@@ -329,30 +325,24 @@ defmodule Storytime.Workers.DialogueGenWorker do
     ]
   end
 
-  defp enqueue_tts(story_id, created_lines) do
-    created_lines
-    |> Enum.reduce_while({:ok, []}, fn line, {:ok, acc} ->
-      case Generation.enqueue(story_id, :dialogue_tts, line.id, %{
-             "source" => "dialogue_generation",
-             "preserve_timings" => true
-           }) do
-        {:ok, job} ->
-          Notifier.broadcast("story:#{story_id}", "generation_started", %{
-            story_id: story_id,
-            job_type: "dialogue_tts",
-            target_id: line.id,
-            job_id: job.id
-          })
+  defp enqueue_page_voice_tts(story_id, page_id) do
+    case Generation.enqueue(story_id, :narration_tts, page_id, %{
+           "source" => "dialogue_generation",
+           "force" => true,
+           "page_voice_mix" => true
+         }) do
+      {:ok, job} ->
+        Notifier.broadcast("story:#{story_id}", "generation_started", %{
+          story_id: story_id,
+          job_type: "narration_tts",
+          target_id: page_id,
+          job_id: job.id
+        })
 
-          {:cont, {:ok, [job | acc]}}
+        {:ok, job}
 
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, jobs} -> {:ok, Enum.reverse(jobs)}
-      {:error, reason} -> {:error, reason}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -374,65 +364,8 @@ defmodule Storytime.Workers.DialogueGenWorker do
     :ok
   end
 
-  defp broadcast_timing_updates(story_id, lines) do
-    Enum.each(lines, fn line ->
-      Notifier.broadcast("story:#{story_id}", "dialogue_line_updated", %{
-        line: %{
-          id: line.id,
-          page_id: line.page_id,
-          character_id: line.character_id,
-          text: line.text,
-          audio_url: line.audio_url,
-          timings_url: line.timings_url,
-          sort_order: line.sort_order
-        }
-      })
-    end)
-
-    :ok
-  end
-
-  defp persist_page_dialogue_timings(story_id, created_lines, characters) do
-    with {:ok, dialogue_payload} <- request_dialogue_timestamps(created_lines, characters),
-         {:ok, alignment} <- extract_character_alignment(dialogue_payload),
-         {:ok, segments} <- extract_voice_segments(dialogue_payload),
-         {:ok, updated_lines} <-
-           persist_dialogue_line_timings(story_id, created_lines, alignment, segments) do
-      {:ok, updated_lines}
-    end
-  end
-
-  defp request_dialogue_timestamps(created_lines, characters) do
-    api_key = System.get_env("ELEVENLABS_API_KEY")
-
-    if blank?(api_key) do
-      {:error, :missing_elevenlabs_api_key}
-    else
-      with {:ok, inputs} <- dialogue_inputs(created_lines, characters),
-           {:ok, payload} <- post_dialogue_timestamp_request(api_key, inputs) do
-        {:ok, payload}
-      end
-    end
-  end
-
-  defp dialogue_inputs(created_lines, characters) do
-    by_id = Map.new(characters, &{&1.id, &1})
-
-    inputs =
-      created_lines
-      |> Enum.map(fn line ->
-        character = Map.get(by_id, line.character_id)
-        voice_id = character && character.voice_id
-
-        if blank?(voice_id) do
-          {:error, :missing_character_voice_id}
-        else
-          {:ok, %{text: line.text || "", voice_id: voice_id}}
-        end
-      end)
-
-    collect_ok_results(inputs)
-  end
+  # NOTE: The timestamp request helpers remain public/private here because
+  # the page voice-mix path reuses the same ElevenLabs endpoint shape.
 
   defp post_dialogue_timestamp_request(api_key, inputs) do
     query = URI.encode_query(%{"output_format" => "mp3_44100_128"})
@@ -473,179 +406,52 @@ defmodule Storytime.Workers.DialogueGenWorker do
   @doc false
   def request_dialogue_timestamps_live(api_key, inputs)
       when is_binary(api_key) and is_list(inputs) do
-    post_dialogue_timestamp_request(api_key, inputs)
+    with {:ok, normalized_inputs} <- normalize_dialogue_inputs(inputs) do
+      post_dialogue_timestamp_request(api_key, normalized_inputs)
+    end
   end
 
-  defp extract_character_alignment(payload) when is_map(payload) do
-    alignment =
-      Map.get(payload, "normalized_alignment") ||
-        Map.get(payload, "alignment")
-
-    with %{} = alignment_map <- alignment,
-         chars when is_list(chars) <- Map.get(alignment_map, "characters"),
-         starts when is_list(starts) <- Map.get(alignment_map, "character_start_times_seconds"),
-         ends when is_list(ends) <- Map.get(alignment_map, "character_end_times_seconds") do
-      if length(chars) == length(starts) and length(chars) == length(ends) do
-        {:ok,
-         %{
-           characters: Enum.map(chars, &to_string/1),
-           starts: Enum.map(starts, &to_seconds/1),
-           ends: Enum.map(ends, &to_seconds/1)
-         }}
-      else
-        {:error, :invalid_dialogue_alignment}
+  @doc false
+  def normalize_dialogue_inputs(inputs) when is_list(inputs) do
+    inputs
+    |> Enum.reduce_while({:ok, []}, fn input, {:ok, acc} ->
+      case normalize_dialogue_input(input) do
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
-    else
-      _ -> {:error, :invalid_dialogue_alignment}
-    end
-  end
-
-  defp extract_voice_segments(payload) when is_map(payload) do
-    case Map.get(payload, "voice_segments") do
-      values when is_list(values) and values != [] -> {:ok, values}
-      _ -> {:error, :invalid_dialogue_voice_segments}
-    end
-  end
-
-  defp persist_dialogue_line_timings(story_id, created_lines, alignment, segments) do
-    created_lines
-    |> Enum.with_index()
-    |> Enum.map(fn {line, idx} ->
-      with {:ok, line_timing} <- timings_for_line(line, idx, alignment, segments),
-           filename = "dialogue_#{line.id}_timings.json",
-           {:ok, timings_url} <- Assets.write_json(story_id, filename, line_timing),
-           {:ok, updated_line} <- Stories.set_dialogue_timings(story_id, line.id, timings_url) do
-        {:ok, updated_line}
-      end
-    end)
-    |> collect_ok_results()
-  end
-
-  defp timings_for_line(line, line_index, alignment, segments) do
-    with {:ok, range} <- dialogue_char_range_for_line(line_index, segments),
-         {:ok, sliced_alignment} <- slice_alignment_range(alignment, range) do
-      {:ok, WordTimings.from_alignment(line.text || "", sliced_alignment)}
-    end
-  end
-
-  defp dialogue_char_range_for_line(line_index, segments) do
-    matching =
-      segments
-      |> Enum.filter(&(segment_dialogue_input_index(&1) == line_index))
-      |> Enum.map(fn segment ->
-        {segment_integer(segment, "character_start_index"),
-         segment_integer(segment, "character_end_index")}
-      end)
-
-    case matching do
-      [] ->
-        case Enum.at(segments, line_index) do
-          segment when is_map(segment) ->
-            start_idx = segment_integer(segment, "character_start_index")
-            end_idx = segment_integer(segment, "character_end_index")
-
-            if is_integer(start_idx) and is_integer(end_idx) and start_idx >= 0 and
-                 end_idx > start_idx do
-              {:ok, %{start_index: start_idx, end_index: end_idx}}
-            else
-              {:error, {:missing_dialogue_segment_for_index, line_index}}
-            end
-
-          _ ->
-            {:error, {:missing_dialogue_segment_for_index, line_index}}
-        end
-
-      values ->
-        start_idx = values |> Enum.map(&elem(&1, 0)) |> Enum.min()
-        end_idx = values |> Enum.map(&elem(&1, 1)) |> Enum.max()
-
-        if is_integer(start_idx) and is_integer(end_idx) and start_idx >= 0 and
-             end_idx > start_idx do
-          {:ok, %{start_index: start_idx, end_index: end_idx}}
-        else
-          {:error, {:invalid_dialogue_segment_range, line_index}}
-        end
-    end
-  end
-
-  defp slice_alignment_range(alignment, %{start_index: start_idx, end_index: end_idx}) do
-    chars = Map.get(alignment, :characters, [])
-    starts = Map.get(alignment, :starts, [])
-    ends = Map.get(alignment, :ends, [])
-    char_count = length(chars)
-    count = end_idx - start_idx
-
-    cond do
-      start_idx < 0 or count <= 0 or end_idx > char_count ->
-        {:error, :dialogue_alignment_range_out_of_bounds}
-
-      true ->
-        slice_starts = Enum.slice(starts, start_idx, count)
-        slice_ends = Enum.slice(ends, start_idx, count)
-        base_start = List.first(slice_starts) || 0.0
-
-        local_starts = Enum.map(slice_starts, &max(&1 - base_start, 0.0))
-        local_ends = Enum.map(slice_ends, &max(&1 - base_start, 0.0))
-
-        {:ok,
-         %{
-           "character_start_times_seconds" => local_starts,
-           "character_end_times_seconds" => local_ends
-         }}
-    end
-  end
-
-  defp segment_dialogue_input_index(segment) do
-    case segment_integer(segment, "dialogue_input_index") do
-      value when is_integer(value) and value >= 0 -> value
-      _ -> -1
-    end
-  end
-
-  defp segment_integer(segment, key) when is_map(segment) do
-    value = Map.get(segment, key)
-
-    cond do
-      is_integer(value) ->
-        value
-
-      is_binary(value) ->
-        case Integer.parse(value) do
-          {parsed, ""} -> parsed
-          _ -> nil
-        end
-
-      true ->
-        nil
-    end
-  end
-
-  defp segment_integer(_segment, _key), do: nil
-
-  defp to_seconds(value) when is_integer(value), do: value * 1.0
-  defp to_seconds(value) when is_float(value), do: value
-
-  defp to_seconds(value) when is_binary(value) do
-    case Float.parse(value) do
-      {parsed, _} -> parsed
-      :error -> 0.0
-    end
-  end
-
-  defp to_seconds(_value), do: 0.0
-
-  defp collect_ok_results(results) when is_list(results) do
-    results
-    |> Enum.reduce_while([], fn
-      {:ok, value}, acc -> {:cont, [value | acc]}
-      {:error, reason}, _acc -> {:halt, {:error, reason}}
-      other, _acc -> {:halt, {:error, {:unexpected_result, other}}}
     end)
     |> case do
+      {:ok, []} -> {:error, :empty_dialogue_inputs}
+      {:ok, values} -> {:ok, Enum.reverse(values)}
       {:error, reason} -> {:error, reason}
-      collected -> {:ok, Enum.reverse(collected)}
     end
   end
+
+  def normalize_dialogue_inputs(_inputs), do: {:error, :invalid_dialogue_inputs}
+
+  defp normalize_dialogue_input({voice_id, text}),
+    do: normalize_dialogue_input(%{voice_id: voice_id, text: text})
+
+  defp normalize_dialogue_input(input) when is_map(input) do
+    voice_id = Map.get(input, :voice_id) || Map.get(input, "voice_id")
+    text = Map.get(input, :text) || Map.get(input, "text")
+
+    normalized_voice = voice_id |> to_string() |> String.trim()
+    normalized_text = text |> to_string() |> String.trim()
+
+    cond do
+      normalized_voice == "" ->
+        {:error, :invalid_dialogue_input_voice_id}
+
+      normalized_text == "" ->
+        {:error, :invalid_dialogue_input_text}
+
+      true ->
+        {:ok, %{voice_id: normalized_voice, text: normalized_text}}
+    end
+  end
+
+  defp normalize_dialogue_input(_input), do: {:error, :invalid_dialogue_input}
 
   defp trim_json_fence(content) do
     content

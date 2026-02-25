@@ -185,13 +185,25 @@ function normalizeCanonicalV2(payload) {
     return segments.reduce((acc, segment) => acc + segment.durationMs, 0);
   })();
 
+  const audioStartMs = Number.isFinite(Number(payload.audioStartMs))
+    ? toNonNegativeInt(payload.audioStartMs)
+    : 0;
+
+  const audioEndCandidate = Number.isFinite(Number(payload.audioEndMs))
+    ? toNonNegativeInt(payload.audioEndMs)
+    : 0;
+
+  const audioEndMs = audioEndCandidate > audioStartMs ? audioEndCandidate : null;
+
   return ok({
     schemaVersion: 2,
     provider,
     text,
     totalDurationMs,
     segmentGapMs,
-    segments: segments.sort((a, b) => a.index - b.index)
+    segments: segments.sort((a, b) => a.index - b.index),
+    audioStartMs,
+    audioEndMs
   });
 }
 
