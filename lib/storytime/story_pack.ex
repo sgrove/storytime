@@ -142,18 +142,20 @@ defmodule Storytime.StoryPack do
 
   defp absolute_url(nil, _base_url), do: nil
 
-  defp absolute_url(url, _base_url) when is_binary(url) and (url == ""), do: nil
-
-  defp absolute_url(url, _base_url) when is_binary(url) and (String.starts_with?(url, "https://") or String.starts_with?(url, "http://")) do
-    url
-  end
-
-  defp absolute_url(url, base_url) when is_binary(url) and String.starts_with?(url, "/") do
-    base_url <> url
-  end
-
   defp absolute_url(url, base_url) when is_binary(url) do
-    base_url <> "/" <> String.trim_leading(url, "/")
+    cond do
+      url == "" ->
+        nil
+
+      String.starts_with?(url, "https://") or String.starts_with?(url, "http://") ->
+        url
+
+      String.starts_with?(url, "/") ->
+        base_url <> url
+
+      true ->
+        base_url <> "/" <> String.trim_leading(url, "/")
+    end
   end
 
   defp endpoint_base_url do
