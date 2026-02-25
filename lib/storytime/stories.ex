@@ -86,6 +86,38 @@ defmodule Storytime.Stories do
     )
   end
 
+  def list_generation_oban_jobs(story_id, generation_job_id) do
+    Repo.all(
+      from(j in Oban.Job,
+        where:
+          fragment("?->>? = ?", j.args, "story_id", ^story_id) and
+            fragment("?->>? = ?", j.args, "generation_job_id", ^generation_job_id),
+        order_by: [desc: j.inserted_at]
+      )
+    )
+  end
+
+  def delete_generation_oban_jobs(story_id, generation_job_id) do
+    {count, _} =
+      Repo.delete_all(
+        from(j in Oban.Job,
+          where:
+            fragment("?->>? = ?", j.args, "story_id", ^story_id) and
+              fragment("?->>? = ?", j.args, "generation_job_id", ^generation_job_id)
+        )
+      )
+
+    {:ok, count}
+  end
+
+  def delete_generation_job(story_id, generation_job_id) do
+    with %GenerationJob{} = job <- get_story_generation_job(story_id, generation_job_id) do
+      Repo.delete(job)
+    else
+      nil -> {:error, :not_found}
+    end
+  end
+
   def find_active_generation_job(story_id, job_type, target_id) do
     Repo.one(
       from(j in GenerationJob,

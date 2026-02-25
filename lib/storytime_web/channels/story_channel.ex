@@ -26,6 +26,7 @@ defmodule StorytimeWeb.StoryChannel do
     "generate_all_audio",
     "generate_music",
     "retry_generation",
+    "delete_generation_job",
     "prune_generation_jobs",
     "generate_all",
     "deploy_story"
@@ -76,6 +77,7 @@ defmodule StorytimeWeb.StoryChannel do
     "music_span_updated" => ["span"],
     "music_span_deleted" => ["id", "span"],
     "generation_started" => ["story_id", "job_type", "target_id", "job_id"],
+    "generation_deleted" => ["story_id", "job_id", "deleted"],
     "deploy_started" => ["story_id", "job_id"],
     "generation_history_pruned" => [
       "story_id",
@@ -349,6 +351,22 @@ defmodule StorytimeWeb.StoryChannel do
   end
 
   @impl true
+  def handle_in("delete_generation_job", payload, socket) do
+    with {:ok, job_id} <- required_field(payload, "job_id"),
+         {:ok, result} <- Generation.delete(socket.assigns.story_id, job_id) do
+      broadcast!(
+        socket,
+        "generation_deleted",
+        Map.merge(result, %{story_id: socket.assigns.story_id})
+      )
+
+      {:reply, {:ok, result}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, normalize_error(reason)}, socket}
+    end
+  end
+
+  @impl true
   def handle_in("prune_generation_jobs", payload, socket) do
     with {:ok, result} <-
            Stories.prune_generation_history(socket.assigns.story_id, payload || %{}) do
@@ -385,8 +403,8 @@ defmodule StorytimeWeb.StoryChannel do
            Generation.enqueue(socket.assigns.story_id, generation_type, target_id, payload) do
       broadcast!(socket, "generation_started", %{
         story_id: socket.assigns.story_id,
-        job_type: to_string(generation_type),
-        target_id: target_id,
+        job_type: to_string(job.job_type),
+        target_id: job.target_id,
         job_id: job.id
       })
 

@@ -716,6 +716,35 @@
         return state.apiBase.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://").replace(/\/$/, "");
       }
 
+      function enqueueOptimisticJob(jobType, targetId, details = {}) {
+        const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+        const nowIso = new Date().toISOString();
+
+        const optimisticJob = {
+          id: optimisticId,
+          job_type: jobType,
+          target_id: targetId || null,
+          status: "pending",
+          inserted_at: nowIso,
+          updated_at: nowIso,
+          age_seconds: 0,
+          active_detail: "Queued locally. Waiting for server confirmation.",
+          ...details
+        };
+
+        state.jobs = [optimisticJob, ...(state.jobs || [])];
+        renderJobs();
+        renderGlobalActions();
+        return optimisticId;
+      }
+
+      function clearOptimisticJob(jobId) {
+        if (!jobId) return;
+        state.jobs = (state.jobs || []).filter((job) => job.id !== jobId);
+        renderJobs();
+        renderGlobalActions();
+      }
+
       async function loadStories() {
         try {
           const data = await api("/api/stories");
@@ -880,6 +909,7 @@
           "generation_started",
           "generation_completed",
           "generation_failed",
+          "generation_deleted",
           "generation_history_pruned",
           "deploy_started",
           "deploy_completed",
@@ -892,6 +922,7 @@
           "music_track_added","music_track_updated","music_track_deleted",
           "music_span_added","music_span_updated","music_span_deleted",
           "generation_completed","generation_failed","generation_history_pruned",
+          "generation_deleted",
           "deploy_completed","deploy_failed"
         ]);
 
@@ -902,6 +933,7 @@
           "music_track_added","music_track_updated","music_track_deleted",
           "music_span_added","music_span_updated","music_span_deleted",
           "generation_started","generation_progress","generation_completed","generation_failed",
+          "generation_deleted",
           "generation_history_pruned",
           "deploy_started","deploy_completed","deploy_failed"
         ].forEach((eventName) => {
@@ -1721,6 +1753,8 @@
           const retryBusy = hasActiveJobType(job.job_type);
           const retryable = isRetryableJob(job);
           const canRetry = retryable && (!retryBusy || (status === "running" && job.likely_stuck));
+          const isActive = isActiveStatus(status);
+          const deleteLabel = isActive ? "Stop + Delete" : "Delete";
           const obanMetaParts = [];
           if (oban && oban.state) obanMetaParts.push(`oban ${oban.state}`);
           if (oban && oban.queue) obanMetaParts.push(`queue ${oban.queue}`);
@@ -1758,7 +1792,10 @@
               ${oban && oban.last_error ? `<div class="meta" style="color:#872d1a;">worker error: ${esc(compactText(oban.last_error, 180))}</div>` : ""}
               ${job.likely_stuck ? `<div class="meta" style="color:#872d1a;">Likely stuck execution. Retry to enqueue a fresh attempt.</div>` : ""}
               ${job.error ? `<div style="color:#872d1a;">${esc(job.error)}</div>` : ""}
-              ${retryable ? `<div class="actions" style="margin-top:8px;"><button class="btn" data-action="retry-job" data-job-id="${job.id}" ${canRetry ? "" : "disabled"}>${status === "running" && job.likely_stuck ? "Retry (Likely Stuck)" : (canRetry ? "Retry" : "Retrying...")}</button></div>` : ""}
+              <div class="actions" style="margin-top:8px;">
+                ${retryable ? `<button class="btn" data-action="retry-job" data-job-id="${job.id}" ${canRetry ? "" : "disabled"}>${status === "running" && job.likely_stuck ? "Retry (Likely Stuck)" : (canRetry ? "Retry" : "Retrying...")}</button>` : ""}
+                <button class="btn warn" data-action="delete-job" data-job-id="${job.id}">${deleteLabel}</button>
+              </div>
             </div>
           `;
         }).join("");
@@ -1779,7 +1816,12 @@
           state.jobProgress[payload.job_id] = Number(payload.progress || 0);
         }
 
-        if ((eventName === "generation_completed" || eventName === "generation_failed") && payload.job_id) {
+        if (
+          (eventName === "generation_completed" ||
+            eventName === "generation_failed" ||
+            eventName === "generation_deleted") &&
+          payload.job_id
+        ) {
           delete state.jobProgress[payload.job_id];
         }
 
@@ -1828,6 +1870,7 @@
         const node = event.target.closest("[data-action]");
         if (!node) return;
         const action = node.dataset.action;
+        let optimisticJobId = null;
 
         try {
           let refreshAfterAction = true;
@@ -1887,6 +1930,10 @@
             const character = currentCharacters().find((entry) => entry.id === id);
             const payload = { character_id: id };
             if (character && character.headshot_url) payload.force = true;
+            optimisticJobId = enqueueOptimisticJob("headshot", id, {
+              target_label: `Character "${character?.name || id}"`,
+              character_name: character?.name || null
+            });
             await push("generate_headshot", payload);
           }
 
@@ -1916,6 +1963,10 @@
             const page = currentPages().find((entry) => entry.id === id);
             const payload = { page_id: id };
             if (page && page.scene_image_url) payload.force = true;
+            optimisticJobId = enqueueOptimisticJob("scene", id, {
+              target_label: `Page ${(page?.page_index || 0) + 1} scene`,
+              page_number: (page?.page_index || 0) + 1
+            });
             await push("generate_scene", payload);
           }
           if (action === "generate-narration") {
@@ -1923,6 +1974,10 @@
             const page = currentPages().find((entry) => entry.id === id);
             const payload = { page_id: id };
             if (page && page.narration_audio_url) payload.force = true;
+            optimisticJobId = enqueueOptimisticJob("narration_tts", id, {
+              target_label: `Page ${(page?.page_index || 0) + 1} narration`,
+              page_number: (page?.page_index || 0) + 1
+            });
             await push("generate_narration_audio", payload);
           }
           if (action === "generate-page-dialogue") {
@@ -1931,6 +1986,10 @@
             const page = currentPages().find((entry) => entry.id === pageId);
             const payload = { page_id: pageId, line_count: lineCount };
             if (page && (page.dialogue_lines || []).length > 0) payload.force = true;
+            optimisticJobId = enqueueOptimisticJob("dialogue", pageId, {
+              target_label: `Page ${(page?.page_index || 0) + 1} dialogue`,
+              page_number: (page?.page_index || 0) + 1
+            });
             await push("generate_dialogue", payload);
           }
 
@@ -1962,6 +2021,11 @@
                 .find((entry) => entry.id === lineId) || null;
             const payload = { dialogue_line_id: lineId };
             if (line && line.audio_url) payload.force = true;
+            optimisticJobId = enqueueOptimisticJob("dialogue_tts", lineId, {
+              target_label: `Dialogue line`,
+              character_name: line?.character_name || null,
+              text_preview: line?.text || null
+            });
             await push("generate_dialogue_audio", payload);
           }
 
@@ -2013,6 +2077,10 @@
             const track = currentTracks().find((entry) => entry.id === trackId);
             const payload = { track_id: trackId };
             if (track && track.audio_url) payload.force = true;
+            optimisticJobId = enqueueOptimisticJob("music", trackId, {
+              target_label: `Music track "${track?.title || trackId}"`,
+              text_preview: track?.mood || null
+            });
             await push("generate_music", payload);
           }
 
@@ -2038,11 +2106,37 @@
 
           if (action === "delete-span") await push("delete_music_span", { id: node.dataset.id });
 
-          if (action === "generate-all-scenes") await push("generate_all_scenes", {});
-          if (action === "generate-all-dialogue") await push("generate_all_dialogue", {});
-          if (action === "generate-all-audio") await push("generate_all_audio", {});
-          if (action === "generate-all") await push("generate_all", {});
+          if (action === "generate-all-scenes") {
+            optimisticJobId = enqueueOptimisticJob("all_scenes", null, {
+              target_label: "Generate all scenes"
+            });
+            await push("generate_all_scenes", {});
+          }
+          if (action === "generate-all-dialogue") {
+            optimisticJobId = enqueueOptimisticJob("all_dialogue", null, {
+              target_label: "Generate all dialogue"
+            });
+            await push("generate_all_dialogue", {});
+          }
+          if (action === "generate-all-audio") {
+            optimisticJobId = enqueueOptimisticJob("all_audio", null, {
+              target_label: "Generate all audio"
+            });
+            await push("generate_all_audio", {});
+          }
+          if (action === "generate-all") {
+            optimisticJobId = enqueueOptimisticJob("all", null, {
+              target_label: "Generate everything"
+            });
+            await push("generate_all", {});
+          }
           if (action === "retry-job") await push("retry_generation", { job_id: node.dataset.jobId, source: "queue_retry" });
+          if (action === "delete-job") {
+            refreshAfterAction = false;
+            await push("delete_generation_job", { job_id: node.dataset.jobId });
+            await loadJobs();
+            renderJobs();
+          }
           if (action === "queue-filter") {
             refreshAfterAction = false;
             state.queueFilter = node.dataset.filter || "all";
@@ -2105,6 +2199,7 @@
             if (state.currentTab === "preview") await loadPreviewPack();
           }
         } catch (err) {
+          if (typeof optimisticJobId !== "undefined" && optimisticJobId) clearOptimisticJob(optimisticJobId);
           setStatus(`Action error: ${err.message}`, false);
         }
       });

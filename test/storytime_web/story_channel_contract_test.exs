@@ -21,6 +21,7 @@ defmodule StorytimeWeb.StoryChannelContractTest do
     "generate_dialogue_audio",
     "generate_all_audio",
     "generate_music",
+    "delete_generation_job",
     "generate_all",
     "deploy_story"
   ]
@@ -70,6 +71,7 @@ defmodule StorytimeWeb.StoryChannelContractTest do
     "music_span_updated" => ["span"],
     "music_span_deleted" => ["id", "span"],
     "generation_started" => ["story_id", "job_type", "target_id", "job_id"],
+    "generation_deleted" => ["story_id", "job_id", "deleted"],
     "deploy_started" => ["story_id", "job_id"]
   }
 
@@ -140,5 +142,10 @@ defmodule StorytimeWeb.StoryChannelContractTest do
   test "extended client event for generation history pruning is declared" do
     declared = StoryChannel.required_client_events() |> MapSet.new()
     assert MapSet.member?(declared, "prune_generation_jobs")
+  end
+
+  test "extended client event for generation deletion is declared" do
+    declared = StoryChannel.required_client_events() |> MapSet.new()
+    assert MapSet.member?(declared, "delete_generation_job")
   end
 end

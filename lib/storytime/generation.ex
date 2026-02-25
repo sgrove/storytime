@@ -41,6 +41,33 @@ defmodule Storytime.Generation do
     end
   end
 
+  @spec delete(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def delete(story_id, generation_job_id) do
+    case Stories.get_story_generation_job(story_id, generation_job_id) do
+      nil ->
+        {:error, :not_found}
+
+      generation_job ->
+        oban_jobs = Stories.list_generation_oban_jobs(story_id, generation_job_id)
+        cancelled_oban_job_ids = cancel_active_oban_jobs(oban_jobs)
+
+        with {:ok, deleted_oban_jobs} <-
+               Stories.delete_generation_oban_jobs(story_id, generation_job_id),
+             {:ok, _} <- Stories.delete_generation_job(story_id, generation_job_id),
+             {:ok, _} <- Stories.maybe_mark_story_ready(story_id) do
+          {:ok,
+           %{
+             job_id: generation_job_id,
+             deleted: true,
+             stopped: cancelled_oban_job_ids != [],
+             cancelled_oban_job_ids: cancelled_oban_job_ids,
+             deleted_oban_jobs: deleted_oban_jobs,
+             deleted_status: to_string(generation_job.status)
+           }}
+        end
+    end
+  end
+
   @spec enqueue_deploy(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def enqueue_deploy(story_id, subdomain, payload \\ %{}) do
     with :ok <- validate_subdomain(subdomain),
@@ -350,6 +377,22 @@ defmodule Storytime.Generation do
   defp collect_created_jobs([], acc), do: {:ok, Enum.reverse(acc)}
   defp collect_created_jobs([{:ok, job} | tail], acc), do: collect_created_jobs(tail, [job | acc])
   defp collect_created_jobs([{:error, reason} | _tail], _acc), do: {:error, reason}
+
+  defp cancel_active_oban_jobs(oban_jobs) do
+    oban_jobs
+    |> Enum.filter(&active_oban_job?/1)
+    |> Enum.map(fn oban_job ->
+      _ = Oban.cancel_job(oban_job.id)
+      oban_job.id
+    end)
+  end
+
+  defp active_oban_job?(%{state: state}) do
+    state = state |> to_string() |> String.downcase()
+    state in ["available", "scheduled", "retryable", "executing"]
+  end
+
+  defp active_oban_job?(_), do: false
 
   defp blank?(value), do: value in [nil, ""]
 

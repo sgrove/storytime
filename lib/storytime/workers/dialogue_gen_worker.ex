@@ -642,6 +642,7 @@ defmodule Storytime.Workers.DialogueGenWorker do
   defp status_update(job_id, status, error \\ nil) do
     case Stories.set_generation_job_status(job_id, status, error) do
       {:ok, _} -> :ok
+      {:error, :not_found} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
