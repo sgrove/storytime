@@ -84,6 +84,18 @@ defmodule Storytime.Stories do
     )
   end
 
+  def find_active_generation_job(story_id, job_type, target_id) do
+    Repo.one(
+      from(j in GenerationJob,
+        where:
+          j.story_id == ^story_id and j.job_type == ^job_type and j.target_id == ^target_id and
+            j.status in ^@active_generation_statuses,
+        order_by: [desc: j.inserted_at],
+        limit: 1
+      )
+    )
+  end
+
   def list_story_oban_jobs(story_id) do
     Repo.all(
       from(j in Oban.Job,

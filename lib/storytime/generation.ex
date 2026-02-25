@@ -146,15 +146,26 @@ defmodule Storytime.Generation do
   defp persist_and_enqueue(story_id, jobs, payload) do
     jobs
     |> Enum.map(fn {job_type, target_id} ->
-      with {:ok, gen_job} <- Stories.create_generation_job(story_id, job_type, target_id),
-           {:ok, _oban_job} <- insert_oban_job(story_id, gen_job.id, job_type, target_id, payload) do
-        {:ok, gen_job}
-      end
+      maybe_enqueue_job(story_id, job_type, target_id, payload)
     end)
     |> collect_created_jobs([])
     |> case do
       {:ok, created_jobs} -> {:ok, List.first(created_jobs)}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_enqueue_job(story_id, job_type, target_id, payload) do
+    case Stories.find_active_generation_job(story_id, job_type, target_id) do
+      nil ->
+        with {:ok, gen_job} <- Stories.create_generation_job(story_id, job_type, target_id),
+             {:ok, _oban_job} <-
+               insert_oban_job(story_id, gen_job.id, job_type, target_id, payload) do
+          {:ok, gen_job}
+        end
+
+      active_job ->
+        {:ok, active_job}
     end
   end
 
