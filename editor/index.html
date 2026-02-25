@@ -875,6 +875,26 @@
 
         state.channel = state.socket.channel(`story:${state.currentStory.id}`, { role: "editor" });
 
+        const progressOnlyEvents = new Set(["generation_progress"]);
+        const jobsRefreshEvents = new Set([
+          "generation_started",
+          "generation_completed",
+          "generation_failed",
+          "generation_history_pruned",
+          "deploy_started",
+          "deploy_completed",
+          "deploy_failed"
+        ]);
+        const storyRefreshEvents = new Set([
+          "story_updated","character_added","character_updated","character_deleted",
+          "page_added","page_updated","page_deleted","pages_reordered",
+          "dialogue_line_added","dialogue_line_updated","dialogue_line_deleted",
+          "music_track_added","music_track_updated","music_track_deleted",
+          "music_span_added","music_span_updated","music_span_deleted",
+          "generation_completed","generation_failed","generation_history_pruned",
+          "deploy_completed","deploy_failed"
+        ]);
+
         [
           "story_updated","character_added","character_updated","character_deleted",
           "page_added","page_updated","page_deleted","pages_reordered",
@@ -887,7 +907,24 @@
         ].forEach((eventName) => {
           state.channel.on(eventName, async (payload) => {
             recordEvent(eventName, payload || {});
-            await Promise.all([loadStoryFull(), loadJobs()]);
+
+            if (progressOnlyEvents.has(eventName)) {
+              renderJobs();
+              renderGlobalActions();
+              return;
+            }
+
+            const needsStoryRefresh = storyRefreshEvents.has(eventName);
+            const needsJobsRefresh = jobsRefreshEvents.has(eventName);
+
+            if (needsStoryRefresh && needsJobsRefresh) {
+              await Promise.all([loadStoryFull(), loadJobs()]);
+            } else if (needsStoryRefresh) {
+              await loadStoryFull();
+            } else if (needsJobsRefresh) {
+              await loadJobs();
+            }
+
             if (state.currentTab === "preview") await loadPreviewPack();
           });
         });
@@ -897,7 +934,7 @@
           .receive("error", (resp) => setStatus(`Socket join failed: ${JSON.stringify(resp)}`, false));
 
         clearInterval(state.jobsPoll);
-        state.jobsPoll = setInterval(loadJobs, 3000);
+        state.jobsPoll = setInterval(loadJobs, 15000);
       }
 
       function disconnectChannel() {
