@@ -172,32 +172,26 @@ defmodule Storytime.Stories do
     tail_ids = existing_ids -- ordered_ids
     final_ids = ordered_ids ++ tail_ids
 
-    multi =
-      Enum.with_index(final_ids)
-      |> Enum.reduce(
-        Multi.new()
-        |> Multi.run(:validate, fn _repo, _changes ->
-          if final_ids == [] and existing_ids != [] do
-            {:error, :invalid_page_order}
-          else
-            {:ok, :valid}
-          end
-        end),
-        fn {page_id, idx}, m ->
+    if final_ids == [] and existing_ids != [] do
+      {:error, :invalid_page_order}
+    else
+      multi =
+        Enum.with_index(final_ids)
+        |> Enum.reduce(Multi.new(), fn {page_id, idx}, m ->
           Multi.update_all(
             m,
             {:page, page_id},
             from(p in Page, where: p.story_id == ^story_id and p.id == ^page_id),
             set: [page_index: idx, sort_order: idx]
           )
-        end
-      )
+        end)
 
-    multi
-    |> Repo.transaction()
-    |> case do
-      {:ok, _} -> {:ok, list_pages(story_id)}
-      {:error, _op, reason, _changes} -> {:error, reason}
+      multi
+      |> Repo.transaction()
+      |> case do
+        {:ok, _} -> {:ok, list_pages(story_id)}
+        {:error, _op, reason, _changes} -> {:error, reason}
+      end
     end
   end
 

@@ -8,6 +8,7 @@ defmodule Storytime.MixProject do
       elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
+      dialyzer: [plt_add_apps: [:mix]],
       deps: deps()
     ]
   end
@@ -33,7 +34,8 @@ defmodule Storytime.MixProject do
       {:cors_plug, "~> 3.0"},
       {:plug_cowboy, "~> 2.7"},
       {:req, "~> 0.5"},
-      {:oban, "~> 2.19"}
+      {:oban, "~> 2.19"},
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
     ]
   end
 end

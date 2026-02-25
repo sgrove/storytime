@@ -19,7 +19,7 @@ defmodule StorytimeWeb.Endpoint do
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
 
   plug(CORSPlug,
-    origin: &__MODULE__.allowed_origin?/1,
+    origin: &__MODULE__.allowed_origins/0,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     headers: ["accept", "authorization", "content-type", "origin", "user-agent"],
     expose: ["content-type"]
@@ -33,11 +33,11 @@ defmodule StorytimeWeb.Endpoint do
 
   plug(StorytimeWeb.Router)
 
-  def allowed_origin?(origin) when is_binary(origin) do
-    Regex.match?(~r/^https?:\/\/localhost(:\d+)?$/, origin) or
-      Regex.match?(~r/^https?:\/\/127\.0\.0\.1(:\d+)?$/, origin) or
-      Regex.match?(~r/^https:\/\/[a-z0-9-]+\.onrender\.com$/, origin)
+  def allowed_origins do
+    [
+      ~r/^https?:\/\/localhost(:\d+)?$/,
+      ~r/^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+      ~r/^https:\/\/[a-z0-9-]+\.onrender\.com$/
+    ]
   end
-
-  def allowed_origin?(_origin), do: false
 end
