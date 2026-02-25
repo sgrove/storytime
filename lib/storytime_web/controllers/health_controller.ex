@@ -21,11 +21,15 @@ defmodule StorytimeWeb.HealthController do
       env: env_check()
     }
 
-    ok? = Enum.all?(checks, fn {_k, v} -> v.ok end)
+    ok? = checks.db.ok and checks.assets_disk.ok
 
     conn
     |> put_status(if(ok?, do: :ok, else: :service_unavailable))
-    |> json(%{status: if(ok?, do: "ok", else: "degraded"), checks: checks})
+    |> json(%{
+      status: if(ok?, do: "ok", else: "degraded"),
+      checks: checks,
+      warnings: health_warnings(checks)
+    })
   end
 
   defp db_check do
@@ -60,6 +64,12 @@ defmodule StorytimeWeb.HealthController do
     else
       %{ok: false, missing: missing}
     end
+  end
+
+  defp health_warnings(checks) do
+    warnings = []
+    warnings = if checks.env.ok, do: warnings, else: ["missing_optional_runtime_env"]
+    warnings
   end
 
   defp assets_base_path do

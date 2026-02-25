@@ -214,7 +214,7 @@ defmodule Storytime.Deploy.RenderDeploy do
     end
   end
 
-  defp ensure_url(%{url: url} = result) when is_binary(url) and url != "", do: {:ok, url}
+  defp ensure_url(%{url: url}) when is_binary(url) and url != "", do: {:ok, url}
 
   defp ensure_url(%{slug: slug}) when is_binary(slug) and slug != "" do
     {:ok, "https://#{slug}.onrender.com"}
