@@ -85,4 +85,9 @@ defmodule StorytimeWeb.StoryChannelContractTest do
     assert MapSet.member?(declared, "generate_dialogue")
     assert MapSet.member?(declared, "generate_all_dialogue")
   end
+
+  test "extended client event for generation retry is declared" do
+    declared = StoryChannel.required_client_events() |> MapSet.new()
+    assert MapSet.member?(declared, "retry_generation")
+  end
 end

@@ -964,6 +964,8 @@
           const status = job.status || "pending";
           const progress = state.jobProgress[job.id];
           const oban = job.oban || null;
+          const retryBusy = hasActiveJobType(job.job_type);
+          const canRetry = status === "failed" && job.job_type !== "deploy" && !retryBusy;
           const obanMetaParts = [];
           if (oban && oban.state) obanMetaParts.push(`oban ${oban.state}`);
           if (oban && oban.queue) obanMetaParts.push(`queue ${oban.queue}`);
@@ -995,6 +997,7 @@
               ${wait ? `<div class="meta">next retry window: ${esc(wait)}</div>` : ""}
               ${oban && oban.last_error ? `<div class="meta" style="color:#872d1a;">worker error: ${esc(compactText(oban.last_error, 180))}</div>` : ""}
               ${job.error ? `<div style="color:#872d1a;">${esc(job.error)}</div>` : ""}
+              ${status === "failed" && job.job_type !== "deploy" ? `<div class="actions" style="margin-top:8px;"><button class="btn" data-action="retry-job" data-job-id="${job.id}" ${canRetry ? "" : "disabled"}>${canRetry ? "Retry" : "Retrying..."}</button></div>` : ""}
             </div>
           `;
         }).join("");
@@ -1201,6 +1204,7 @@
           if (action === "generate-all-dialogue") await push("generate_all_dialogue", {});
           if (action === "generate-all-audio") await push("generate_all_audio", {});
           if (action === "generate-all") await push("generate_all", {});
+          if (action === "retry-job") await push("retry_generation", { job_id: node.dataset.jobId, source: "queue_retry" });
 
           if (action === "deploy-story") {
             const subdomain = $("deploySubdomain").value.trim() || (state.currentStory.slug || "story");

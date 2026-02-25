@@ -24,6 +24,7 @@ defmodule StorytimeWeb.StoryChannel do
     "generate_dialogue_audio",
     "generate_all_audio",
     "generate_music",
+    "retry_generation",
     "generate_all",
     "deploy_story"
   ]
@@ -297,6 +298,24 @@ defmodule StorytimeWeb.StoryChannel do
     do: enqueue_generation(socket, :all, nil, payload)
 
   @impl true
+  def handle_in("retry_generation", payload, socket) do
+    with {:ok, job_id} <- required_field(payload, "job_id"),
+         {:ok, job} <- Generation.retry(socket.assigns.story_id, job_id, payload) do
+      broadcast!(socket, "generation_started", %{
+        story_id: socket.assigns.story_id,
+        job_type: to_string(job.job_type),
+        target_id: job.target_id,
+        job_id: job.id,
+        retried_from_job_id: job_id
+      })
+
+      {:reply, {:ok, %{job_id: job.id, status: "pending"}}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, normalize_error(reason)}, socket}
+    end
+  end
+
+  @impl true
   def handle_in("deploy_story", payload, socket) do
     with {:ok, subdomain} <- required_field(payload, "subdomain"),
          {:ok, job} <- Generation.enqueue_deploy(socket.assigns.story_id, subdomain, payload) do
@@ -346,6 +365,7 @@ defmodule StorytimeWeb.StoryChannel do
   defp normalize_error(:invalid_subdomain), do: %{error: "invalid_subdomain"}
   defp normalize_error(:story_missing_content), do: %{error: "story_missing_content"}
   defp normalize_error(:nothing_to_generate), do: %{error: "nothing_to_generate"}
+  defp normalize_error(:retry_not_supported), do: %{error: "retry_not_supported"}
 
   defp normalize_error(%Ecto.Changeset{} = changeset) do
     %{error: "validation_failed", details: traverse_errors(changeset)}

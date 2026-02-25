@@ -76,6 +76,14 @@ defmodule Storytime.Stories do
     )
   end
 
+  def get_story_generation_job(story_id, job_id) do
+    Repo.one(
+      from(j in GenerationJob,
+        where: j.story_id == ^story_id and j.id == ^job_id
+      )
+    )
+  end
+
   def list_story_oban_jobs(story_id) do
     Repo.all(
       from(j in Oban.Job,

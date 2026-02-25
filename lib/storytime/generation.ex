@@ -24,6 +24,20 @@ defmodule Storytime.Generation do
     end
   end
 
+  @spec retry(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def retry(story_id, generation_job_id, payload \\ %{}) do
+    case Stories.get_story_generation_job(story_id, generation_job_id) do
+      nil ->
+        {:error, :not_found}
+
+      %{job_type: :deploy} ->
+        {:error, :retry_not_supported}
+
+      %{job_type: job_type, target_id: target_id} ->
+        enqueue(story_id, job_type, target_id, payload)
+    end
+  end
+
   @spec enqueue_deploy(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def enqueue_deploy(story_id, subdomain, payload \\ %{}) do
     with :ok <- validate_subdomain(subdomain),
