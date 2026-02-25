@@ -2,6 +2,7 @@ defmodule StorytimeWeb.ApiController do
   use StorytimeWeb, :controller
 
   alias Storytime.Stories
+  alias Storytime.JobDiagnostics
   alias Storytime.StoryPack
 
   def version(conn, _params) do
@@ -63,18 +64,11 @@ defmodule StorytimeWeb.ApiController do
   def story_jobs(conn, %{"id" => id}) do
     with_repo(conn, fn conn ->
       jobs =
-        Stories.list_story_generation_jobs(id)
-        |> Enum.map(fn job ->
-          %{
-            id: job.id,
-            job_type: to_string(job.job_type),
-            target_id: job.target_id,
-            status: to_string(job.status),
-            error: job.error,
-            inserted_at: job.inserted_at,
-            updated_at: job.updated_at
-          }
-        end)
+        JobDiagnostics.enrich(
+          Stories.list_story_generation_jobs(id),
+          Stories.load_story_graph(id),
+          Stories.list_story_oban_jobs(id)
+        )
 
       json(conn, %{jobs: jobs})
     end)

@@ -567,6 +567,24 @@
         return typeof state.jobProgress[job.id] === "number" ? state.jobProgress[job.id] : null;
       }
 
+      function humanSeconds(value) {
+        if (typeof value !== "number" || Number.isNaN(value)) return null;
+        if (value < 60) return `${value}s`;
+        const mins = Math.floor(value / 60);
+        const secs = value % 60;
+        if (mins < 60) return `${mins}m ${secs}s`;
+        const hrs = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        return `${hrs}h ${remMins}m`;
+      }
+
+      function compactText(value, max = 110) {
+        if (!value) return "";
+        const text = String(value).trim();
+        if (!text) return "";
+        return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+      }
+
       function isActiveStatus(status) {
         return status === "pending" || status === "running";
       }
@@ -938,16 +956,44 @@
           const status = job.status || "pending";
           counts[status] = (counts[status] || 0) + 1;
         }
-        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0}`;
+        const dialoguePending = state.jobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "pending").length;
+        const dialogueRunning = state.jobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "running").length;
+        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0} • dialogue_tts pending ${dialoguePending} running ${dialogueRunning}`;
 
         root.innerHTML = state.jobs.map((job) => {
           const status = job.status || "pending";
           const progress = state.jobProgress[job.id];
+          const oban = job.oban || null;
+          const obanMetaParts = [];
+          if (oban && oban.state) obanMetaParts.push(`oban ${oban.state}`);
+          if (oban && oban.queue) obanMetaParts.push(`queue ${oban.queue}`);
+          if (oban && typeof oban.attempt === "number" && typeof oban.max_attempts === "number") {
+            obanMetaParts.push(`attempt ${oban.attempt}/${oban.max_attempts}`);
+          }
+
+          const wait =
+            oban && typeof oban.available_in_seconds === "number" && oban.available_in_seconds > 0
+              ? humanSeconds(oban.available_in_seconds)
+              : null;
+          const age = typeof job.age_seconds === "number" ? humanSeconds(job.age_seconds) : null;
+          const queuePosition = typeof job.queue_position === "number" ? job.queue_position : null;
+          const preview = compactText(job.text_preview, 115);
+          const targetMeta = compactText(job.target_label || "");
+
           return `
             <div class="queue-item job-${esc(status)}">
               <div><strong>${esc(job.job_type)}</strong> • ${esc(status)}</div>
-              <div class="meta">target: ${esc(job.target_id || "n/a")}</div>
+              <div class="meta">target: ${esc(targetMeta || job.target_id || "n/a")}</div>
+              ${job.character_name ? `<div class="meta">speaker: ${esc(job.character_name)}</div>` : ""}
+              ${typeof job.page_number === "number" ? `<div class="meta">page: ${esc(job.page_number)}</div>` : ""}
+              ${preview ? `<div class="meta">text: ${esc(preview)}</div>` : ""}
+              ${age ? `<div class="meta">age: ${esc(age)}</div>` : ""}
+              ${queuePosition ? `<div class="meta">queue position: ${esc(queuePosition)}</div>` : ""}
+              ${job.active_detail ? `<div class="meta">${esc(job.active_detail)}</div>` : ""}
               ${typeof progress === "number" ? `<div class="meta">progress: ${progress}%</div>` : ""}
+              ${obanMetaParts.length ? `<div class="meta">${esc(obanMetaParts.join(" • "))}</div>` : ""}
+              ${wait ? `<div class="meta">next retry window: ${esc(wait)}</div>` : ""}
+              ${oban && oban.last_error ? `<div class="meta" style="color:#872d1a;">worker error: ${esc(compactText(oban.last_error, 180))}</div>` : ""}
               ${job.error ? `<div style="color:#872d1a;">${esc(job.error)}</div>` : ""}
             </div>
           `;

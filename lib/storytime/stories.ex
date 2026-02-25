@@ -76,6 +76,16 @@ defmodule Storytime.Stories do
     )
   end
 
+  def list_story_oban_jobs(story_id) do
+    Repo.all(
+      from(j in Oban.Job,
+        where: fragment("?->>? = ?", j.args, "story_id", ^story_id),
+        order_by: [desc: j.inserted_at],
+        limit: 1_000
+      )
+    )
+  end
+
   def create_character(story_id, attrs) do
     attrs =
       attrs
