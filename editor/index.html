@@ -709,6 +709,12 @@
         });
       }
 
+      function isRetryableJob(job) {
+        if (!job || job.job_type === "deploy") return false;
+        if (job.status === "failed") return true;
+        return job.status === "running" && job.likely_stuck === true;
+      }
+
       function hasActiveDialogueJobForPage(page) {
         const lineIds = new Set((page.dialogue_lines || []).map((line) => line.id));
 
@@ -1162,10 +1168,11 @@
         }
         const dialoguePending = scopedJobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "pending").length;
         const dialogueRunning = scopedJobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "running").length;
+        const stuckRunning = scopedJobs.filter((job) => job.status === "running" && job.likely_stuck).length;
         const historyLabel = state.queueLatestOnly
           ? `latest-only on${hiddenHistoryCount > 0 ? ` (${hiddenHistoryCount} historical hidden)` : ""}`
           : "latest-only off";
-        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0} • dialogue_tts pending ${dialoguePending} running ${dialogueRunning} • filter ${state.queueFilter} • ${historyLabel}`;
+        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0} • stuck ${stuckRunning} • dialogue_tts pending ${dialoguePending} running ${dialogueRunning} • filter ${state.queueFilter} • ${historyLabel}`;
 
         document.querySelectorAll('[data-action="queue-filter"]').forEach((button) => {
           button.classList.toggle("active", button.dataset.filter === state.queueFilter);
@@ -1182,10 +1189,10 @@
 
         const retryVisibleFailed = $("retryVisibleFailed");
         if (retryVisibleFailed) {
-          const retryableFailedCount = filteredJobs.filter((job) => job.status === "failed" && job.job_type !== "deploy").length;
+          const retryableFailedCount = filteredJobs.filter((job) => isRetryableJob(job)).length;
           retryVisibleFailed.disabled = retryableFailedCount === 0;
           retryVisibleFailed.textContent =
-            retryableFailedCount > 0 ? `Retry Failed Visible (${retryableFailedCount})` : "Retry Failed Visible";
+            retryableFailedCount > 0 ? `Retry Visible Failed/Stuck (${retryableFailedCount})` : "Retry Failed/Stuck Visible";
         }
 
         const pruneHistory = $("pruneHistory");
@@ -1202,7 +1209,8 @@
           const progress = state.jobProgress[job.id];
           const oban = job.oban || null;
           const retryBusy = hasActiveJobType(job.job_type);
-          const canRetry = status === "failed" && job.job_type !== "deploy" && !retryBusy;
+          const retryable = isRetryableJob(job);
+          const canRetry = retryable && (!retryBusy || (status === "running" && job.likely_stuck));
           const obanMetaParts = [];
           if (oban && oban.state) obanMetaParts.push(`oban ${oban.state}`);
           if (oban && oban.queue) obanMetaParts.push(`queue ${oban.queue}`);
@@ -1233,8 +1241,9 @@
               ${obanMetaParts.length ? `<div class="meta">${esc(obanMetaParts.join(" • "))}</div>` : ""}
               ${wait ? `<div class="meta">next retry window: ${esc(wait)}</div>` : ""}
               ${oban && oban.last_error ? `<div class="meta" style="color:#872d1a;">worker error: ${esc(compactText(oban.last_error, 180))}</div>` : ""}
+              ${job.likely_stuck ? `<div class="meta" style="color:#872d1a;">Likely stuck execution. Retry to enqueue a fresh attempt.</div>` : ""}
               ${job.error ? `<div style="color:#872d1a;">${esc(job.error)}</div>` : ""}
-              ${status === "failed" && job.job_type !== "deploy" ? `<div class="actions" style="margin-top:8px;"><button class="btn" data-action="retry-job" data-job-id="${job.id}" ${canRetry ? "" : "disabled"}>${canRetry ? "Retry" : "Retrying..."}</button></div>` : ""}
+              ${retryable ? `<div class="actions" style="margin-top:8px;"><button class="btn" data-action="retry-job" data-job-id="${job.id}" ${canRetry ? "" : "disabled"}>${status === "running" && job.likely_stuck ? "Retry (Likely Stuck)" : (canRetry ? "Retry" : "Retrying...")}</button></div>` : ""}
             </div>
           `;
         }).join("");
@@ -1506,11 +1515,11 @@
           if (action === "retry-visible-failed") {
             refreshAfterAction = false;
             const retryable = filteredQueueJobs().filter(
-              (job) => job.status === "failed" && job.job_type !== "deploy"
+              (job) => isRetryableJob(job)
             );
 
             if (!retryable.length) {
-              setStatus("No visible failed generation jobs to retry.", true);
+              setStatus("No visible failed/stuck generation jobs to retry.", true);
             } else {
               for (const job of retryable) {
                 await push("retry_generation", { job_id: job.id, source: "queue_retry_bulk" });

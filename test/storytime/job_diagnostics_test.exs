@@ -166,6 +166,49 @@ defmodule Storytime.JobDiagnosticsTest do
              "Worker exhausted retries. Retry this job to enqueue a fresh attempt."
   end
 
+  test "flags long-running executing jobs as likely stuck" do
+    now = DateTime.from_unix!(1_762_094_200)
+    inserted_at = DateTime.add(now, -2_100, :second)
+
+    jobs = [
+      %{
+        id: "job-running-stale",
+        job_type: :headshot,
+        target_id: "char-1",
+        status: :running,
+        error: nil,
+        inserted_at: inserted_at,
+        updated_at: inserted_at
+      }
+    ]
+
+    oban_jobs = [
+      %{
+        id: 77,
+        args: %{"generation_job_id" => "job-running-stale", "story_id" => "story-1"},
+        state: "executing",
+        queue: "generation",
+        worker: "Storytime.Workers.ImageGenWorker",
+        attempt: 1,
+        max_attempts: 5,
+        inserted_at: inserted_at,
+        scheduled_at: inserted_at,
+        attempted_at: inserted_at,
+        completed_at: nil,
+        cancelled_at: nil,
+        discarded_at: nil,
+        errors: []
+      }
+    ]
+
+    [job] = JobDiagnostics.enrich(jobs, nil, oban_jobs, now)
+
+    assert job.status == "running"
+    assert job.likely_stuck == true
+    assert job.stale_after_seconds == 900
+    assert String.contains?(job.active_detail, "Likely stuck")
+  end
+
   test "freezes age for completed jobs" do
     now = DateTime.from_unix!(1_762_094_200)
     inserted_at = DateTime.add(now, -120, :second)

@@ -3,6 +3,10 @@ defmodule Storytime.JobDiagnostics do
   Enriches generation jobs with contextual target and Oban runtime diagnostics.
   """
 
+  @running_stale_seconds_default 900
+  @terminal_oban_states [:completed, :discarded, :cancelled, :canceled]
+  @terminal_oban_states_strings Enum.map(@terminal_oban_states, &to_string/1)
+
   @spec enrich([map()], map() | nil, [map()], DateTime.t()) :: [map()]
   def enrich(generation_jobs, story, oban_jobs, now \\ DateTime.utc_now()) do
     oban_by_generation_job_id = build_oban_lookup(oban_jobs)
@@ -12,6 +16,9 @@ defmodule Storytime.JobDiagnostics do
     Enum.map(generation_jobs, fn job ->
       oban_job = Map.get(oban_by_generation_job_id, job.id)
       status = effective_status(job.status, oban_job)
+      age_seconds = age_seconds(job, oban_job, status, now)
+      running_stale_seconds = running_stale_seconds()
+      likely_stuck = likely_stuck?(status, oban_job, age_seconds, running_stale_seconds)
 
       base = %{
         id: job.id,
@@ -21,10 +28,13 @@ defmodule Storytime.JobDiagnostics do
         error: job.error,
         inserted_at: job.inserted_at,
         updated_at: job.updated_at,
-        age_seconds: age_seconds(job, oban_job, status, now),
+        age_seconds: age_seconds,
         updated_seconds_ago: elapsed_seconds(job.updated_at, now),
         queue_position: queue_position(job, pending_positions),
-        active_detail: active_detail(job, oban_job, pending_positions, now)
+        active_detail:
+          active_detail(job, oban_job, pending_positions, now, status, age_seconds, likely_stuck),
+        likely_stuck: likely_stuck,
+        stale_after_seconds: if(status == "running", do: running_stale_seconds, else: nil)
       }
 
       base
@@ -203,11 +213,24 @@ defmodule Storytime.JobDiagnostics do
   defp queue_position(%{status: :pending} = job, positions), do: Map.get(positions, job.id)
   defp queue_position(_job, _positions), do: nil
 
-  defp active_detail(%{status: status} = job, oban_job, positions, now)
+  defp active_detail(
+         %{status: status} = job,
+         oban_job,
+         positions,
+         now,
+         effective_status,
+         age_seconds,
+         likely_stuck
+       )
        when status in [:pending, :running] do
     oban_state = if(oban_job, do: to_string(oban_job.state), else: nil)
 
     cond do
+      likely_stuck ->
+        threshold = running_stale_seconds()
+
+        "Running for about #{age_seconds}s (threshold #{threshold}s). Likely stuck; retry to enqueue a fresh attempt."
+
       status == :running and oban_state == "executing" ->
         "Worker is actively executing this job."
 
@@ -226,10 +249,10 @@ defmodule Storytime.JobDiagnostics do
           "Queued for retry."
         end
 
-      status == :pending and is_integer(Map.get(positions, job.id)) ->
+      effective_status == "pending" and is_integer(Map.get(positions, job.id)) ->
         "Waiting in queue at position #{Map.get(positions, job.id)}."
 
-      status == :pending ->
+      effective_status == "pending" ->
         "Queued and waiting for an available worker slot."
 
       true ->
@@ -237,7 +260,8 @@ defmodule Storytime.JobDiagnostics do
     end
   end
 
-  defp active_detail(_job, _oban_job, _positions, _now), do: nil
+  defp active_detail(_job, _oban_job, _positions, _now, _status, _age_seconds, _likely_stuck),
+    do: nil
 
   defp get_arg(args, "generation_job_id") when is_map(args) do
     Map.get(args, "generation_job_id") || Map.get(args, :generation_job_id)
@@ -293,6 +317,30 @@ defmodule Storytime.JobDiagnostics do
 
       candidates ->
         Enum.max_by(candidates, &DateTime.to_unix(&1, :microsecond))
+    end
+  end
+
+  defp likely_stuck?("running", oban_job, age_seconds, stale_seconds)
+       when is_integer(age_seconds) and is_integer(stale_seconds) do
+    age_seconds >= stale_seconds and running_oban_state?(oban_job)
+  end
+
+  defp likely_stuck?(_status, _oban_job, _age_seconds, _stale_seconds), do: false
+
+  defp running_oban_state?(nil), do: true
+
+  defp running_oban_state?(%{state: state}) when state in @terminal_oban_states, do: false
+
+  defp running_oban_state?(%{state: state}) when is_binary(state) do
+    state not in @terminal_oban_states_strings
+  end
+
+  defp running_oban_state?(_), do: true
+
+  defp running_stale_seconds do
+    case Integer.parse(System.get_env("GENERATION_RUNNING_STALE_SECONDS") || "") do
+      {value, ""} when value >= 60 -> value
+      _ -> @running_stale_seconds_default
     end
   end
 
