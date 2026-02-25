@@ -182,6 +182,11 @@
         background: #fff9eb;
       }
 
+      .btn.flat.active {
+        border-color: #8a6a2f;
+        box-shadow: 0 0 0 2px rgba(138, 106, 47, 0.18);
+      }
+
       .btn.warn {
         background: linear-gradient(180deg, #f9c8a9, #e08a61);
       }
@@ -326,6 +331,13 @@
       <section class="panel">
         <div class="panel-head">Generation Queue</div>
         <div class="panel-body">
+          <div class="actions" style="margin-bottom:8px;">
+            <button class="btn flat" data-action="queue-filter" data-filter="all">All</button>
+            <button class="btn flat" data-action="queue-filter" data-filter="active">Active</button>
+            <button class="btn flat" data-action="queue-filter" data-filter="failed">Failed</button>
+            <input id="queueSearch" placeholder="Filter text (job type / speaker / target)" style="max-width:280px;" />
+            <button class="btn flat" data-action="clear-events">Clear Events</button>
+          </div>
           <div class="hint" id="queueSummary" style="margin-bottom: 8px;"></div>
           <div class="hint" style="margin-bottom: 8px;">Tracks pending/running/completed/failed generation and deploy jobs.</div>
           <div class="queue-list" id="queueList"></div>
@@ -355,6 +367,8 @@
         previewPack: null,
         recentEvents: [],
         jobProgress: {},
+        queueFilter: "all",
+        queueSearch: "",
         voiceOptions: [],
         voiceLoadError: null
       };
@@ -958,9 +972,38 @@
         }
         const dialoguePending = state.jobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "pending").length;
         const dialogueRunning = state.jobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "running").length;
-        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0} • dialogue_tts pending ${dialoguePending} running ${dialogueRunning}`;
+        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0} • dialogue_tts pending ${dialoguePending} running ${dialogueRunning} • filter ${state.queueFilter}`;
 
-        root.innerHTML = state.jobs.map((job) => {
+        document.querySelectorAll('[data-action="queue-filter"]').forEach((button) => {
+          button.classList.toggle("active", button.dataset.filter === state.queueFilter);
+        });
+
+        const search = (state.queueSearch || "").trim().toLowerCase();
+        const filteredJobs = state.jobs.filter((job) => {
+          if (state.queueFilter === "active" && !isActiveStatus(job.status)) return false;
+          if (state.queueFilter === "failed" && job.status !== "failed") return false;
+          if (!search) return true;
+
+          const haystack = [
+            job.job_type,
+            job.status,
+            job.target_label,
+            job.target_id,
+            job.character_name,
+            job.text_preview,
+            job.error
+          ].filter(Boolean).join(" ").toLowerCase();
+
+          return haystack.includes(search);
+        });
+
+        if (!filteredJobs.length) {
+          root.innerHTML = '<div class="hint">No jobs match the current filter.</div>';
+          renderEventFeed();
+          return;
+        }
+
+        root.innerHTML = filteredJobs.map((job) => {
           const status = job.status || "pending";
           const progress = state.jobProgress[job.id];
           const oban = job.oban || null;
@@ -1205,6 +1248,14 @@
           if (action === "generate-all-audio") await push("generate_all_audio", {});
           if (action === "generate-all") await push("generate_all", {});
           if (action === "retry-job") await push("retry_generation", { job_id: node.dataset.jobId, source: "queue_retry" });
+          if (action === "queue-filter") {
+            state.queueFilter = node.dataset.filter || "all";
+            renderJobs();
+          }
+          if (action === "clear-events") {
+            state.recentEvents = [];
+            renderEventFeed();
+          }
 
           if (action === "deploy-story") {
             const subdomain = $("deploySubdomain").value.trim() || (state.currentStory.slug || "story");
@@ -1218,6 +1269,11 @@
         } catch (err) {
           setStatus(`Action error: ${err.message}`, false);
         }
+      });
+
+      $("queueSearch").addEventListener("input", (event) => {
+        state.queueSearch = event.target.value || "";
+        renderJobs();
       });
 
       (async function boot() {

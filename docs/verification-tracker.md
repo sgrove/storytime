@@ -23,6 +23,7 @@
 - [x] Generation queue diagnostics now include dialogue_tts-specific context (speaker/page/text preview), queue position, age, Oban state/attempt details, and retry timing.
 - [x] FR-012 broadcast payload minimum-key contract is now explicitly declared in `StoryChannel.required_broadcast_payload_keys/0` and regression-tested.
 - [x] Editor queue now supports `retry_generation` for failed non-deploy jobs via channel event and retry action button.
+- [x] Editor generation queue includes active/failed filtering, text search, and event feed clearing for faster triage.
 - [x] Reader collaboration uses InstantDB room model (presence, host page sync, pointers) with explicit misconfiguration errors.
 - [x] Render API service deploy from GitHub is active.
 - [x] Render managed Postgres provisioned and wired via `DATABASE_URL`.
@@ -37,6 +38,7 @@
 - [x] Generation enqueue now suppresses duplicate active jobs for identical story/job_type/target requests.
 - [x] GitHub Actions CD now runs compile/test/dialyzer guards, validates `render.yaml` via Render CLI, and triggers/polls API/editor/reader deploys on pushes to `main`.
 - [x] Reader identity is now session-stable (ephemeral, no login) and host page sync broadcasts are host-only.
+- [x] Reader now exposes explicit playback status and prunes stale collaboration peers after inactivity.
 
 ## In progress
 - [ ] Full event payload parity across every FR-012 broadcast shape.

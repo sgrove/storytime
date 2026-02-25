@@ -280,6 +280,7 @@
             <label>Music Volume</label>
             <input id="musicVolume" type="range" min="0" max="1" step="0.01" value="0.35" />
           </div>
+          <div class="status" id="playStatus">Playback: idle</div>
         </section>
 
         <section class="card controls">
@@ -479,6 +480,7 @@
         updateMusicForPage();
         sendPresence();
         sendPageSync();
+        renderPlaybackStatus();
 
         if (state.mode === "narrate") {
           runNarratePageSequence({ autoAdvance: true }).catch(showError);
@@ -495,6 +497,21 @@
 
       function renderNarrationText(text) {
         $("narration").innerHTML = renderWordMarkup(text);
+      }
+
+      function renderPlaybackStatus() {
+        let label = "Playback: idle";
+
+        if (state.voicePlaying?.type === "narration") {
+          label = `Playback: narration (page ${state.pageIndex + 1})`;
+        } else if (state.voicePlaying?.type === "dialogue" && state.voicePlaying?.lineId) {
+          const page = currentPage();
+          const line = (page?.dialogue || []).find((entry) => entry.id === state.voicePlaying.lineId);
+          const speaker = line?.characterName || "dialogue";
+          label = `Playback: ${speaker}`;
+        }
+
+        $("playStatus").textContent = label;
       }
 
       function clearHighlighting() {
@@ -548,6 +565,7 @@
         setActiveLine(null);
         await playVoice(page.narration.audioUrl, page.narration.timingsUrl, container);
         state.voicePlaying = { type: "narration", pageIndex: state.pageIndex };
+        renderPlaybackStatus();
       }
 
       async function playLine(lineId) {
@@ -559,6 +577,7 @@
         setActiveLine(lineId);
         await playVoice(line.audioUrl, line.timingsUrl, container);
         state.voicePlaying = { type: "dialogue", lineId };
+        renderPlaybackStatus();
       }
 
       function cancelNarrateSequence() {
@@ -651,6 +670,7 @@
         state.currentHighlight = null;
         setActiveLine(null);
         clearHighlighting();
+        renderPlaybackStatus();
       }
 
       function pageTrackForIndex(pageIndex) {
@@ -777,6 +797,7 @@
         voice.addEventListener("ended", () => {
           state.voicePlaying = null;
           setActiveLine(null);
+          renderPlaybackStatus();
         });
 
         $("voiceVolume").addEventListener("input", () => {
@@ -821,6 +842,8 @@
           if (action === "pause-voice") {
             cancelNarrateSequence();
             $("voiceAudio").pause();
+            state.voicePlaying = null;
+            renderPlaybackStatus();
           }
           if (action === "stop-voice") stopVoice();
           if (action === "play-line") {
@@ -1056,6 +1079,11 @@
       }
 
       function renderCollab() {
+        const now = Date.now();
+        for (const [id, peer] of state.participants.entries()) {
+          if (now - (peer.seenAt || 0) > 15_000) state.participants.delete(id);
+        }
+
         const peers = [...state.participants.values()];
         $("collabStatus").textContent =
           `You: ${state.identity.name} | role: ${state.collab.isHost ? "host" : "guest"} | follow host: ${state.collab.followHost ? "on" : "off"} | backend: ${state.collab.backend}`;
