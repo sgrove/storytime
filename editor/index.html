@@ -795,6 +795,7 @@
           const previewStatus = preview ? preview.status : "";
           const previewUrl = preview?.url || (c.voice_preview_url ? assetUrl(c.voice_preview_url) : "");
           const defaultPreviewText = `Hello, my name is ${c.name || "friend"}. I'm so happy to meet you!`;
+          const headshotActionLabel = c.headshot_url ? "Regenerate Headshot" : "Generate Headshot";
 
           return `
           <div class="card">
@@ -821,7 +822,7 @@
             </div>
             <div class="actions">
               <button class="btn" data-action="save-character" data-id="${c.id}">Save</button>
-              <button class="btn" data-action="generate-headshot" data-id="${c.id}">Generate Headshot</button>
+              <button class="btn" data-action="generate-headshot" data-id="${c.id}">${headshotActionLabel}</button>
               <button class="btn warn" data-action="delete-character" data-id="${c.id}">Delete</button>
             </div>
           </div>
@@ -1267,7 +1268,13 @@
           }
 
           if (action === "delete-character") await push("delete_character", { id: node.dataset.id });
-          if (action === "generate-headshot") await push("generate_headshot", { character_id: node.dataset.id });
+          if (action === "generate-headshot") {
+            const id = node.dataset.id;
+            const character = currentCharacters().find((entry) => entry.id === id);
+            const payload = { character_id: id };
+            if (character && character.headshot_url) payload.force = true;
+            await push("generate_headshot", payload);
+          }
 
           if (action === "add-page") {
             await push("add_page", {

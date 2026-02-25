@@ -24,7 +24,7 @@ defmodule Storytime.Workers.ImageGenWorker do
          {:ok, type} <- required_arg(args, "type"),
          {:ok, target_id} <- required_arg(args, "target_id"),
          {:ok, story} <- fetch_story(story_id) do
-      case existing_asset_url(story, type, target_id) do
+      case reusable_asset_url(story, type, target_id, args) do
         {:ok, asset_url} ->
           complete_from_cached(story_id, type, target_id, generation_job_id, asset_url)
 
@@ -64,6 +64,25 @@ defmodule Storytime.Workers.ImageGenWorker do
   def perform(args) when is_map(args) do
     perform(%Oban.Job{args: args})
   end
+
+  @doc false
+  def reusable_asset_url(story, type, target_id, args) do
+    if force_payload?(args) do
+      :none
+    else
+      existing_asset_url(story, type, target_id)
+    end
+  end
+
+  @doc false
+  def force_payload?(args) when is_map(args) do
+    payload = Map.get(args, "payload") || Map.get(args, :payload) || %{}
+
+    Map.get(payload, "force") in [true, "true", 1, "1"] or
+      Map.get(payload, :force) in [true, "true", 1, "1"]
+  end
+
+  def force_payload?(_args), do: false
 
   defp fetch_story(story_id) do
     case Stories.load_story_graph(story_id) do

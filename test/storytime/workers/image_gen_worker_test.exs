@@ -45,4 +45,29 @@ defmodule Storytime.Workers.ImageGenWorkerTest do
 
     assert ImageGenWorker.fallback_size_for("1536x1024") == nil
   end
+
+  test "force payload bypasses existing asset reuse" do
+    story = %{
+      characters: [%{id: "char-1", headshot_url: "https://assets.example/headshot_char-1.png"}],
+      pages: []
+    }
+
+    assert {:ok, "https://assets.example/headshot_char-1.png"} =
+             ImageGenWorker.reusable_asset_url(story, "headshot", "char-1", %{
+               "payload" => %{"force" => false}
+             })
+
+    assert :none =
+             ImageGenWorker.reusable_asset_url(story, "headshot", "char-1", %{
+               "payload" => %{"force" => true}
+             })
+  end
+
+  test "force payload parser accepts boolean and string truthy values" do
+    assert ImageGenWorker.force_payload?(%{"payload" => %{"force" => true}})
+    assert ImageGenWorker.force_payload?(%{"payload" => %{"force" => "true"}})
+    assert ImageGenWorker.force_payload?(%{"payload" => %{"force" => 1}})
+    refute ImageGenWorker.force_payload?(%{"payload" => %{"force" => false}})
+    refute ImageGenWorker.force_payload?(%{"payload" => %{}})
+  end
 end
