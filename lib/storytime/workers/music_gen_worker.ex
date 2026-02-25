@@ -247,9 +247,6 @@ defmodule Storytime.Workers.MusicGenWorker do
 
   def invalid_tags_error?(_), do: false
 
-  defp poll_sonauto_audio_url(_base, _headers, _task_id, 0, _sleep_ms),
-    do: {:error, :sonauto_timeout}
-
   defp poll_sonauto_audio_url(base, headers, task_id, attempts_left, sleep_ms) do
     now_ms = monotonic_ms()
 
