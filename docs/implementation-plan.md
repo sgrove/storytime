@@ -7,25 +7,25 @@
 - [x] Baseline `render.yaml`
 
 ## Phase 1 - Spec skeleton
-- [ ] Phoenix app foundation (Endpoint, Router, Channel skeleton)
-- [ ] Postgres + Valkey resources in `render.yaml`
-- [ ] Editor and Reader Vite React scaffolds
-- [ ] Story/Cast/Pages/Music minimal type contracts
+- [x] Phoenix app foundation (Endpoint, Router, Channel skeleton)
+- [x] Postgres + Valkey resources provisioned on Render
+- [x] Editor and Reader SPA scaffolds
+- [x] Story/Cast/Pages/Music minimal type contracts
 
 ## Phase 2 - Authoring protocol and persistence
-- [ ] Ecto schemas/migrations for core story entities
-- [ ] `story:{story_id}` channel join + CRUD events
-- [ ] Editor tab UI wired to channel events
-- [ ] Generation queue state tracking surface
+- [x] Ecto schemas/migrations for core story entities
+- [x] `story:{story_id}` channel join + CRUD events
+- [x] Editor tab UI wired to channel events
+- [x] Generation queue state tracking surface
 
 ## Phase 3 - Generation pipeline and assets
-- [ ] Oban setup + worker stubs
-- [ ] Image/TTS/Music integrations with retries
-- [ ] Asset persistence under `/app/assets/{story_id}`
-- [ ] StoryPack assembler and `GET /api/stories/:id/pack`
+- [x] Oban setup + worker implementation
+- [x] Image/TTS/Music integrations with retries
+- [x] Asset persistence under `/app/assets/{story_id}`
+- [x] StoryPack assembler and `GET /api/stories/:id/pack`
 
 ## Phase 4 - Reader + collaboration + deploy
-- [ ] Reader rendering, playback, word highlighting
-- [ ] InstantDB collaboration states
-- [ ] Deploy worker to create per-story Render static site
-- [ ] End-to-end verification checklist run
+- [x] Reader rendering, playback, word highlighting
+- [x] InstantDB collaboration states
+- [x] Deploy worker to create per-story Render static site
+- [ ] End-to-end verification checklist run (script scaffold committed in `scripts/verify_ac.sh`)

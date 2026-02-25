@@ -366,7 +366,15 @@
 
         const res = await fetch(url);
         if (!res.ok) throw new Error(`story_pack_http_${res.status}`);
-        state.pack = await res.json();
+        const pack = await res.json();
+        validatePack(pack);
+        state.pack = pack;
+      }
+
+      function validatePack(pack) {
+        if (!pack || typeof pack !== "object") throw new Error("invalid_story_pack");
+        if (pack.schemaVersion !== 1) throw new Error("invalid_story_pack_schema");
+        if (!Array.isArray(pack.pages)) throw new Error("invalid_story_pack_pages");
       }
 
       function currentPage() {
@@ -618,6 +626,13 @@
       function clearError() {
         $("errorBox").textContent = "";
         $("errorBox").classList.remove("error");
+      }
+
+      function setLoading(text) {
+        $("storyMeta").textContent = text || "Loading story...";
+        $("sceneBox").innerHTML = `<div style="padding:40px;" class="status">${esc(text || "Loading story...")}</div>`;
+        $("narration").textContent = "";
+        $("dialogues").innerHTML = "";
       }
 
       function initAudioListeners() {
@@ -908,6 +923,7 @@
       async function boot() {
         try {
           clearError();
+          setLoading("Loading story pack...");
           state.config = await loadRuntimeConfig();
           await loadPack();
           initAudioListeners();

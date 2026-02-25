@@ -217,6 +217,21 @@
         overflow: auto;
       }
 
+      .event-feed {
+        display: grid;
+        gap: 6px;
+        max-height: 24vh;
+        overflow: auto;
+      }
+
+      .event-item {
+        border: 1px solid #ccb794;
+        border-radius: 8px;
+        padding: 7px 8px;
+        background: #fff8e9;
+        font-size: 12px;
+      }
+
       .queue-item {
         border: 1px solid #c6b18d;
         border-radius: 10px;
@@ -288,6 +303,7 @@
         <div class="panel-head">Editor</div>
         <div class="panel-body">
           <div class="tabs" id="tabs"></div>
+          <div class="hint" style="margin-bottom: 8px;">Fast path: 1) Generate All 2) Deploy 3) Open Deploy URL from Story tab.</div>
           <div class="actions" style="margin-bottom: 10px;">
             <button class="btn" data-action="generate-all-scenes">Generate Scenes</button>
             <button class="btn" data-action="generate-all-audio">Generate Audio</button>
@@ -302,8 +318,12 @@
       <section class="panel">
         <div class="panel-head">Generation Queue</div>
         <div class="panel-body">
+          <div class="hint" id="queueSummary" style="margin-bottom: 8px;"></div>
           <div class="hint" style="margin-bottom: 8px;">Tracks pending/running/completed/failed generation and deploy jobs.</div>
           <div class="queue-list" id="queueList"></div>
+          <hr style="border:none;border-top:1px solid #d3bf99;margin:12px 0;" />
+          <div class="hint" style="margin-bottom: 8px;">Recent channel events.</div>
+          <div class="event-feed" id="eventFeed"></div>
         </div>
       </section>
     </div>
@@ -324,7 +344,9 @@
         socket: null,
         channel: null,
         jobsPoll: null,
-        previewPack: null
+        previewPack: null,
+        recentEvents: [],
+        jobProgress: {}
       };
 
       const $ = (id) => document.getElementById(id);
@@ -430,7 +452,8 @@
           "generation_started","generation_progress","generation_completed","generation_failed",
           "deploy_started","deploy_completed","deploy_failed"
         ].forEach((eventName) => {
-          state.channel.on(eventName, async () => {
+          state.channel.on(eventName, async (payload) => {
+            recordEvent(eventName, payload || {});
             await Promise.all([loadStoryFull(), loadJobs()]);
             if (state.currentTab === "preview") await loadPreviewPack();
           });
@@ -731,25 +754,84 @@
 
       function renderJobs() {
         const root = $("queueList");
+        const summary = $("queueSummary");
         if (!state.currentStory) {
           root.innerHTML = '<div class="hint">Pick a story first.</div>';
+          summary.textContent = "";
+          renderEventFeed();
           return;
         }
 
         if (!state.jobs.length) {
           root.innerHTML = '<div class="hint">No jobs yet.</div>';
+          summary.textContent = "No jobs tracked yet.";
+          renderEventFeed();
           return;
         }
 
+        const counts = { pending: 0, running: 0, completed: 0, failed: 0 };
+        for (const job of state.jobs) {
+          const status = job.status || "pending";
+          counts[status] = (counts[status] || 0) + 1;
+        }
+        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0}`;
+
         root.innerHTML = state.jobs.map((job) => {
           const status = job.status || "pending";
+          const progress = state.jobProgress[job.id];
           return `
             <div class="queue-item job-${esc(status)}">
               <div><strong>${esc(job.job_type)}</strong> • ${esc(status)}</div>
               <div class="meta">target: ${esc(job.target_id || "n/a")}</div>
+              ${typeof progress === "number" ? `<div class="meta">progress: ${progress}%</div>` : ""}
               ${job.error ? `<div style="color:#872d1a;">${esc(job.error)}</div>` : ""}
             </div>
           `;
+        }).join("");
+
+        renderEventFeed();
+      }
+
+      function recordEvent(eventName, payload) {
+        const stamp = new Date().toLocaleTimeString();
+        state.recentEvents.unshift({
+          eventName,
+          payload,
+          stamp
+        });
+        state.recentEvents = state.recentEvents.slice(0, 24);
+
+        if (eventName === "generation_progress" && payload.job_id) {
+          state.jobProgress[payload.job_id] = Number(payload.progress || 0);
+        }
+
+        if ((eventName === "generation_completed" || eventName === "generation_failed") && payload.job_id) {
+          delete state.jobProgress[payload.job_id];
+        }
+
+        if (eventName === "deploy_completed" && payload.url) {
+          setStatus(`Deploy live: ${payload.url}`, true);
+        }
+
+        if (eventName === "deploy_failed") {
+          setStatus(`Deploy failed: ${payload.error || "unknown"}`, false);
+        }
+      }
+
+      function renderEventFeed() {
+        const root = $("eventFeed");
+        if (!root) return;
+
+        if (!state.recentEvents.length) {
+          root.innerHTML = '<div class="hint">No events yet.</div>';
+          return;
+        }
+
+        root.innerHTML = state.recentEvents.map((item) => {
+          const target = item.payload?.target_id || "n/a";
+          const progress =
+            typeof item.payload?.progress === "number" ? ` • ${item.payload.progress}%` : "";
+          return `<div class="event-item"><strong>${esc(item.eventName)}</strong> • ${esc(item.stamp)} • target ${esc(target)}${esc(progress)}</div>`;
         }).join("");
       }
 
