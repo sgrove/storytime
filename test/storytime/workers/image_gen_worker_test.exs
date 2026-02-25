@@ -3,6 +3,12 @@ defmodule Storytime.Workers.ImageGenWorkerTest do
 
   alias Storytime.Workers.ImageGenWorker
 
+  test "uses supported image defaults and the gpt-image-1.5 model" do
+    assert ImageGenWorker.image_size_for("headshot") == "1024x1024"
+    assert ImageGenWorker.image_size_for("scene") == "1536x1024"
+    assert ImageGenWorker.openai_image_model() == "gpt-image-1.5"
+  end
+
   test "falls back from legacy 512x512 headshot size on openai invalid size error" do
     body = %{
       "error" => %{

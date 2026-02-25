@@ -369,6 +369,7 @@
         jobProgress: {},
         queueFilter: "all",
         queueSearch: "",
+        characterVoicePreview: {},
         voiceOptions: [],
         voiceLoadError: null
       };
@@ -436,6 +437,47 @@
         }
 
         if (state.currentTab === "cast") renderTabContent();
+      }
+
+      async function generateCharacterVoicePreview(characterId) {
+        const character = currentCharacters().find((entry) => entry.id === characterId);
+        if (!character) throw new Error("character_not_found");
+
+        const selectedVoiceId = $(`char-voice-${characterId}`)?.value || "";
+        if (!isValidVoiceId(selectedVoiceId)) throw new Error("select_a_valid_voice");
+
+        const text = ($(`char-preview-text-${characterId}`)?.value || "").trim();
+        if (!text) throw new Error("preview_text_required");
+
+        state.characterVoicePreview[characterId] = { status: "loading", text };
+        renderTabContent();
+
+        try {
+          const payload = await api("/api/voices/preview", {
+            method: "POST",
+            body: JSON.stringify({
+              provider: "elevenlabs",
+              voice_id: selectedVoiceId,
+              model_id: character.voice_model_id || "eleven_multilingual_v2",
+              text
+            })
+          });
+
+          state.characterVoicePreview[characterId] = {
+            status: "ready",
+            text,
+            url: payload.audio_data_url
+          };
+        } catch (err) {
+          state.characterVoicePreview[characterId] = {
+            status: "error",
+            text,
+            error: err.message || "preview_failed"
+          };
+          throw err;
+        } finally {
+          renderTabContent();
+        }
       }
 
       async function createStory() {
@@ -681,6 +723,40 @@
         return parts.join("");
       }
 
+      function voiceById(voiceId) {
+        if (!voiceId) return null;
+        return (state.voiceOptions || []).find((voice) => voice.id === voiceId) || null;
+      }
+
+      function isValidVoiceId(voiceId) {
+        return !!voiceById(voiceId);
+      }
+
+      function voiceCharacteristicLabel(voice) {
+        if (!voice || !voice.labels || typeof voice.labels !== "object") return "";
+        const interesting = ["gender", "accent", "age", "descriptive", "use_case", "language"];
+        const parts = interesting
+          .map((key) => voice.labels[key])
+          .filter((value) => typeof value === "string" && value.trim() !== "")
+          .slice(0, 3);
+        return parts.join(" • ");
+      }
+
+      function voiceSelectMarkup(selectedVoiceId, selectId) {
+        const options = state.voiceOptions || [];
+        const validSelected = isValidVoiceId(selectedVoiceId) ? selectedVoiceId : "";
+        return `
+          <select id="${selectId}">
+            <option value="">Select a voice...</option>
+            ${options.map((voice) => {
+              const labelParts = [voice.name || voice.id, voice.category, voiceCharacteristicLabel(voice)].filter(Boolean);
+              const label = labelParts.join(" • ");
+              return `<option value="${esc(voice.id)}" ${validSelected === voice.id ? "selected" : ""}>${esc(label)}</option>`;
+            }).join("")}
+          </select>
+        `;
+      }
+
       function renderStoryTab() {
         if (!state.currentStory) return '<div class="hint">Pick a story from the lobby.</div>';
         return `
@@ -704,22 +780,43 @@
       function renderCastTab() {
         if (!state.currentStory) return '<div class="hint">Pick a story first.</div>';
 
-        const cards = currentCharacters().map((c) => `
+        const cards = currentCharacters().map((c) => {
+          const selectedVoice = voiceById(c.voice_id);
+          const preview = state.characterVoicePreview[c.id] || null;
+          const previewStatus = preview ? preview.status : "";
+          const defaultPreviewText = `Hello, my name is ${c.name || "friend"}. I'm so happy to meet you!`;
+
+          return `
           <div class="card">
             <h3>${esc(c.name || "Character")}</h3>
             <div class="row">
               <div class="field"><label>Name</label><input id="char-name-${c.id}" value="${esc(c.name)}" /></div>
-              <div class="field"><label>Voice ID</label><input list="voiceCatalog" id="char-voice-${c.id}" value="${esc(c.voice_id || "")}" placeholder="Pick or paste ElevenLabs voice id" /></div>
+              <div class="field">
+                <label>Voice</label>
+                ${voiceSelectMarkup(c.voice_id, `char-voice-${c.id}`)}
+              </div>
             </div>
+            ${selectedVoice ? `<div class="hint" style="margin-bottom:8px;">Selected: ${esc(selectedVoice.name || selectedVoice.id)}${selectedVoice.category ? ` • ${esc(selectedVoice.category)}` : ""}${voiceCharacteristicLabel(selectedVoice) ? ` • ${esc(voiceCharacteristicLabel(selectedVoice))}` : ""}</div>` : ""}
+            ${c.voice_id && !selectedVoice ? `<div class="hint" style="margin-bottom:8px;color:#872d1a;">Stored voice id is no longer valid. Choose a voice from the library.</div>` : ""}
             <div class="field"><label>Visual Description</label><textarea id="char-desc-${c.id}">${esc(c.visual_description || "")}</textarea></div>
             ${c.headshot_url ? `<img src="${esc(assetUrl(c.headshot_url))}" alt="headshot" style="max-width:180px;border-radius:10px;border:1px solid #ccb48f;" />` : ""}
+            <div class="card" style="background:#fff2d4;">
+              <label>Voice Preview Text</label>
+              <textarea id="char-preview-text-${c.id}" style="min-height:64px;">${esc(preview?.text || defaultPreviewText)}</textarea>
+              <div class="actions" style="margin-top:8px;">
+                <button class="btn" data-action="preview-character-voice" data-id="${c.id}" ${selectedVoice ? "" : "disabled"}>${previewStatus === "loading" ? "Generating Preview..." : "Generate Voice Preview"}</button>
+              </div>
+              ${previewStatus === "error" ? `<div class="hint" style="color:#872d1a;margin-top:6px;">${esc(preview.error || "preview_failed")}</div>` : ""}
+              ${preview?.url ? `<audio controls src="${esc(preview.url)}" style="width:100%;margin-top:8px;"></audio>` : ""}
+            </div>
             <div class="actions">
               <button class="btn" data-action="save-character" data-id="${c.id}">Save</button>
               <button class="btn" data-action="generate-headshot" data-id="${c.id}">Generate Headshot</button>
               <button class="btn warn" data-action="delete-character" data-id="${c.id}">Delete</button>
             </div>
           </div>
-        `).join("");
+        `;
+        }).join("");
 
         return `
           <div class="stack">
@@ -730,16 +827,18 @@
                 <span class="hint">${state.voiceOptions.length ? `${state.voiceOptions.length} voices loaded` : "No voices loaded yet."}</span>
               </div>
               ${state.voiceLoadError ? `<div style="color:#872d1a;margin-top:6px;">${esc(state.voiceLoadError)}</div>` : ""}
-              <datalist id="voiceCatalog">${voiceOptionsMarkup("")}</datalist>
             </div>
             <div class="card">
               <h3>Add Character</h3>
               <div class="row">
                 <div class="field"><label>Name</label><input id="newCharName" placeholder="Luna" /></div>
-                <div class="field"><label>Voice ID</label><input list="voiceCatalog" id="newCharVoice" placeholder="Pick or paste ElevenLabs voice id" /></div>
+                <div class="field">
+                  <label>Voice</label>
+                  ${voiceSelectMarkup("", "newCharVoice")}
+                </div>
               </div>
               <div class="field"><label>Visual Description</label><textarea id="newCharDesc" placeholder="A bright fox with a blue scarf"></textarea></div>
-              <button class="btn ok" data-action="add-character">Add Character</button>
+              <button class="btn ok" data-action="add-character" ${state.voiceOptions.length ? "" : "disabled"}>Add Character</button>
             </div>
             ${cards || '<div class="hint">No characters yet.</div>'}
           </div>
@@ -1106,6 +1205,7 @@
         const action = node.dataset.action;
 
         try {
+          let refreshAfterAction = true;
           if (action === "reload-stories") await loadStories();
           if (action === "load-voices") await loadVoices();
           if (action === "disconnect") disconnectChannel();
@@ -1128,24 +1228,32 @@
           }
 
           if (action === "add-character") {
-            const fallbackVoiceId = (state.voiceOptions[0] && state.voiceOptions[0].id) || "";
+            const voiceId = $("newCharVoice").value || "";
+            if (!isValidVoiceId(voiceId)) throw new Error("select_a_valid_voice");
             await push("add_character", {
               name: $("newCharName").value,
               visual_description: $("newCharDesc").value,
-              voice_id: $("newCharVoice").value || fallbackVoiceId,
+              voice_id: voiceId,
               voice_provider: "elevenlabs"
             });
           }
 
           if (action === "save-character") {
             const id = node.dataset.id;
+            const voiceId = $(`char-voice-${id}`).value || "";
+            if (!isValidVoiceId(voiceId)) throw new Error("select_a_valid_voice");
             await push("update_character", {
               id,
               name: $(`char-name-${id}`).value,
               visual_description: $(`char-desc-${id}`).value,
-              voice_id: $(`char-voice-${id}`).value,
+              voice_id: voiceId,
               voice_provider: "elevenlabs"
             });
+          }
+
+          if (action === "preview-character-voice") {
+            refreshAfterAction = false;
+            await generateCharacterVoicePreview(node.dataset.id);
           }
 
           if (action === "delete-character") await push("delete_character", { id: node.dataset.id });
@@ -1249,10 +1357,12 @@
           if (action === "generate-all") await push("generate_all", {});
           if (action === "retry-job") await push("retry_generation", { job_id: node.dataset.jobId, source: "queue_retry" });
           if (action === "queue-filter") {
+            refreshAfterAction = false;
             state.queueFilter = node.dataset.filter || "all";
             renderJobs();
           }
           if (action === "clear-events") {
+            refreshAfterAction = false;
             state.recentEvents = [];
             renderEventFeed();
           }
@@ -1264,8 +1374,10 @@
 
           if (action === "refresh-preview") await loadPreviewPack();
 
-          await Promise.all([loadStoryFull(), loadJobs()]);
-          if (state.currentTab === "preview") await loadPreviewPack();
+          if (refreshAfterAction) {
+            await Promise.all([loadStoryFull(), loadJobs()]);
+            if (state.currentTab === "preview") await loadPreviewPack();
+          }
         } catch (err) {
           setStatus(`Action error: ${err.message}`, false);
         }

@@ -10,6 +10,9 @@ defmodule Storytime.Workers.ImageGenWorker do
   alias Storytime.Stories
 
   @openai_url "https://api.openai.com/v1/images/generations"
+  @openai_image_model "gpt-image-1.5"
+  @headshot_image_size "1024x1024"
+  @scene_image_size "1536x1024"
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -26,7 +29,7 @@ defmodule Storytime.Workers.ImageGenWorker do
           with {:ok, target_prompt, filename} <- prompt_and_filename(story, type, target_id),
                :ok <- mark_running(generation_job_id),
                :ok <- emit_progress(story_id, type, target_id, generation_job_id, 10),
-               {:ok, image_bytes, provider} <- generate_image(target_prompt, image_size(type)),
+               {:ok, image_bytes, provider} <- generate_image(target_prompt, image_size_for(type)),
                :ok <- emit_progress(story_id, type, target_id, generation_job_id, 75),
                {:ok, asset_url} <- Assets.write_binary(story_id, filename, image_bytes),
                {:ok, _} <- persist_url(story_id, type, target_id, asset_url),
@@ -106,8 +109,12 @@ defmodule Storytime.Workers.ImageGenWorker do
 
   defp prompt_and_filename(_story, _type, _target_id), do: {:error, :unsupported_image_type}
 
-  defp image_size("headshot"), do: "512x512"
-  defp image_size("scene"), do: "1536x1024"
+  @doc false
+  def image_size_for("headshot"), do: @headshot_image_size
+  def image_size_for("scene"), do: @scene_image_size
+
+  @doc false
+  def openai_image_model, do: @openai_image_model
 
   defp generate_image(prompt, size) do
     case call_openai_image(prompt, size) do
@@ -146,7 +153,7 @@ defmodule Storytime.Workers.ImageGenWorker do
 
   defp request_openai_image(api_key, prompt, size) do
     body = %{
-      model: "gpt-image-1.5",
+      model: @openai_image_model,
       prompt: prompt,
       size: size,
       output_format: "png"
@@ -180,7 +187,7 @@ defmodule Storytime.Workers.ImageGenWorker do
   def should_fallback_size?(_status, _body, _size), do: false
 
   @doc false
-  def fallback_size_for("512x512"), do: "1024x1024"
+  def fallback_size_for("512x512"), do: @headshot_image_size
   def fallback_size_for(_), do: nil
 
   defp invalid_size_error?(%{"error" => error}) when is_map(error) do

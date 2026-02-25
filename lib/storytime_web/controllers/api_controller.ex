@@ -5,6 +5,8 @@ defmodule StorytimeWeb.ApiController do
   alias Storytime.JobDiagnostics
   alias Storytime.StoryPack
 
+  @elevenlabs_tts_base "https://api.elevenlabs.io/v1/text-to-speech"
+
   def version(conn, _params) do
     json(conn, %{
       service: "storytime-api",
@@ -131,6 +133,58 @@ defmodule StorytimeWeb.ApiController do
     conn
     |> put_status(:bad_request)
     |> json(%{error: "unsupported_voice_provider"})
+  end
+
+  def voice_preview(conn, params) do
+    provider = Map.get(params, "provider", "elevenlabs")
+    text = Map.get(params, "text", "") |> to_string() |> String.trim()
+    voice_id = Map.get(params, "voice_id")
+    model_id = Map.get(params, "model_id")
+
+    cond do
+      provider != "elevenlabs" ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "unsupported_voice_provider"})
+
+      not (is_binary(voice_id) and String.trim(voice_id) != "") ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "missing_voice_id"})
+
+      text == "" ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "missing_preview_text"})
+
+      true ->
+        with {:ok, voices} <- elevenlabs_voices(),
+             true <- Enum.any?(voices, &(&1.id == voice_id)),
+             {:ok, audio_b64} <- elevenlabs_preview_audio(voice_id, text, model_id) do
+          json(conn, %{
+            provider: "elevenlabs",
+            voice_id: voice_id,
+            model_id: model_id || "eleven_multilingual_v2",
+            text: text,
+            audio_data_url: "data:audio/mpeg;base64,#{audio_b64}"
+          })
+        else
+          false ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "invalid_voice_id"})
+
+          {:error, :missing_elevenlabs_api_key} ->
+            conn
+            |> put_status(:service_unavailable)
+            |> json(%{error: "missing_elevenlabs_api_key"})
+
+          {:error, reason} ->
+            conn
+            |> put_status(:bad_gateway)
+            |> json(%{error: "voice_preview_failed", details: inspect(reason)})
+        end
+    end
   end
 
   defp with_repo(conn, fun) do
@@ -275,6 +329,38 @@ defmodule StorytimeWeb.ApiController do
             |> Enum.sort_by(fn voice -> String.downcase(voice.name || "") end)
 
           {:ok, parsed}
+
+        {:ok, %{status: status, body: body}} ->
+          {:error, {:elevenlabs_error, status, body}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp elevenlabs_preview_audio(voice_id, text, model_id) do
+    api_key = System.get_env("ELEVENLABS_API_KEY")
+
+    if api_key in [nil, ""] do
+      {:error, :missing_elevenlabs_api_key}
+    else
+      headers = [
+        {"xi-api-key", api_key},
+        {"content-type", "application/json"}
+      ]
+
+      body = %{
+        text: text,
+        model_id: model_id || "eleven_multilingual_v2",
+        output_format: "mp3_44100_128"
+      }
+
+      url = "#{@elevenlabs_tts_base}/#{voice_id}/with-timestamps"
+
+      case Req.post(url, headers: headers, json: body) do
+        {:ok, %{status: 200, body: %{"audio_base64" => audio_b64}}} when is_binary(audio_b64) ->
+          {:ok, audio_b64}
 
         {:ok, %{status: status, body: body}} ->
           {:error, {:elevenlabs_error, status, body}}
