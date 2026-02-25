@@ -5,6 +5,7 @@ defmodule Storytime.Generation do
 
   alias Storytime.Stories
   alias Storytime.Workers.{DeployWorker, ImageGenWorker, MusicGenWorker, TtsGenWorker}
+  @subdomain_regex ~r/^[a-z0-9](?:[a-z0-9-]{1,40}[a-z0-9])?$/
 
   @spec enqueue(String.t(), atom(), String.t() | nil, map()) :: {:ok, map()} | {:error, term()}
   def enqueue(story_id, generation_type, target_id, payload \\ %{}) do
@@ -17,7 +18,9 @@ defmodule Storytime.Generation do
 
   @spec enqueue_deploy(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def enqueue_deploy(story_id, subdomain, payload \\ %{}) do
-    with {:ok, gen_job} <- Stories.create_generation_job(story_id, :deploy, nil),
+    with :ok <- validate_subdomain(subdomain),
+         :ok <- validate_deploy_story(story_id),
+         {:ok, gen_job} <- Stories.create_generation_job(story_id, :deploy, nil),
          {:ok, _oban_job} <-
            %{
              "generation_job_id" => gen_job.id,
@@ -25,7 +28,8 @@ defmodule Storytime.Generation do
              "payload" => Map.put(payload || %{}, "subdomain", subdomain)
            }
            |> DeployWorker.new(queue: :deploy, max_attempts: 5)
-           |> Oban.insert() do
+           |> Oban.insert(),
+         {:ok, _} <- Stories.set_story_status(story_id, :generating) do
       {:ok, gen_job}
     end
   end
@@ -33,7 +37,10 @@ defmodule Storytime.Generation do
   defp jobs_for_request(_story_id, :headshot, target_id), do: single(:headshot, target_id)
   defp jobs_for_request(_story_id, :scene, target_id), do: single(:scene, target_id)
   defp jobs_for_request(_story_id, :dialogue_tts, target_id), do: single(:dialogue_tts, target_id)
-  defp jobs_for_request(_story_id, :narration_tts, target_id), do: single(:narration_tts, target_id)
+
+  defp jobs_for_request(_story_id, :narration_tts, target_id),
+    do: single(:narration_tts, target_id)
+
   defp jobs_for_request(_story_id, :music, target_id), do: single(:music, target_id)
 
   defp jobs_for_request(story_id, :all_scenes, _target_id) do
@@ -88,7 +95,8 @@ defmodule Storytime.Generation do
     end
   end
 
-  defp jobs_for_request(_story_id, _generation_type, _target_id), do: {:error, :unsupported_job_type}
+  defp jobs_for_request(_story_id, _generation_type, _target_id),
+    do: {:error, :unsupported_job_type}
 
   defp single(_job_type, nil), do: {:error, :missing_target_id}
   defp single(job_type, target_id), do: {:ok, [{job_type, target_id}]}
@@ -175,4 +183,28 @@ defmodule Storytime.Generation do
   defp collect_created_jobs([{:error, reason} | _tail], _acc), do: {:error, reason}
 
   defp blank?(value), do: value in [nil, ""]
+
+  defp validate_subdomain(subdomain) when is_binary(subdomain) do
+    if Regex.match?(@subdomain_regex, subdomain) do
+      :ok
+    else
+      {:error, :invalid_subdomain}
+    end
+  end
+
+  defp validate_subdomain(_), do: {:error, :invalid_subdomain}
+
+  defp validate_deploy_story(story_id) do
+    case Stories.load_story_graph(story_id) do
+      nil ->
+        {:error, :not_found}
+
+      story ->
+        if Enum.empty?(story.pages || []) do
+          {:error, :story_missing_content}
+        else
+          :ok
+        end
+    end
+  end
 end

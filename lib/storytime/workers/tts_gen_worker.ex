@@ -29,7 +29,9 @@ defmodule Storytime.Workers.TtsGenWorker do
          {:ok, timings_url} <- Assets.write_json(story_id, timings_filename, timings),
          {:ok, _} <- persist_urls(story_id, type, target_id, audio_url, timings_url),
          :ok <- mark_completed(generation_job_id) do
+      _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, type, target_id, generation_job_id, 100)
+
       StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
         story_id: story_id,
         job_type: map_job_type(type),
@@ -38,6 +40,7 @@ defmodule Storytime.Workers.TtsGenWorker do
         url: audio_url,
         timings_url: timings_url
       })
+
       {:ok, %{url: audio_url, timings_url: timings_url, provider: provider}}
     else
       {:error, reason} ->
@@ -102,8 +105,12 @@ defmodule Storytime.Workers.TtsGenWorker do
     end
   end
 
-  defp filenames("dialogue", target_id), do: {:ok, "dialogue_#{target_id}.mp3", "dialogue_#{target_id}_timings.json"}
-  defp filenames("narration", target_id), do: {:ok, "narration_#{target_id}.mp3", "narration_#{target_id}_timings.json"}
+  defp filenames("dialogue", target_id),
+    do: {:ok, "dialogue_#{target_id}.mp3", "dialogue_#{target_id}_timings.json"}
+
+  defp filenames("narration", target_id),
+    do: {:ok, "narration_#{target_id}.mp3", "narration_#{target_id}_timings.json"}
+
   defp filenames(_type, _target_id), do: {:error, :unsupported_tts_type}
 
   defp synthesize(text, voice_id, model_id) do
@@ -203,7 +210,8 @@ defmodule Storytime.Workers.TtsGenWorker do
     Stories.set_page_narration(story_id, target_id, audio_url, timings_url)
   end
 
-  defp persist_urls(_story_id, _type, _target_id, _audio_url, _timings_url), do: {:error, :unsupported_tts_type}
+  defp persist_urls(_story_id, _type, _target_id, _audio_url, _timings_url),
+    do: {:error, :unsupported_tts_type}
 
   defp mark_running(job_id), do: status_update(job_id, :running)
   defp mark_completed(job_id), do: status_update(job_id, :completed)
@@ -224,6 +232,8 @@ defmodule Storytime.Workers.TtsGenWorker do
     _ = status_update(generation_job_id, :failed, inspect(reason))
 
     if story_id do
+      _ = Stories.maybe_mark_story_ready(story_id)
+
       StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_failed", %{
         story_id: story_id,
         job_type: map_job_type(type),

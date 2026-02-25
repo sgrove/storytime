@@ -24,7 +24,9 @@ defmodule Storytime.Workers.ImageGenWorker do
          {:ok, asset_url} <- Assets.write_binary(story_id, filename, image_bytes),
          {:ok, _} <- persist_url(story_id, type, target_id, asset_url),
          :ok <- mark_completed(generation_job_id) do
+      _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, type, target_id, generation_job_id, 100)
+
       StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
         story_id: story_id,
         job_type: map_job_type(type),
@@ -32,6 +34,7 @@ defmodule Storytime.Workers.ImageGenWorker do
         job_id: generation_job_id,
         url: asset_url
       })
+
       {:ok, %{url: asset_url, provider: provider}}
     else
       {:error, reason} ->
@@ -141,8 +144,12 @@ defmodule Storytime.Workers.ImageGenWorker do
     end
   end
 
-  defp persist_url(story_id, "headshot", target_id, url), do: Stories.set_character_headshot(story_id, target_id, url)
-  defp persist_url(story_id, "scene", target_id, url), do: Stories.set_page_scene(story_id, target_id, url)
+  defp persist_url(story_id, "headshot", target_id, url),
+    do: Stories.set_character_headshot(story_id, target_id, url)
+
+  defp persist_url(story_id, "scene", target_id, url),
+    do: Stories.set_page_scene(story_id, target_id, url)
+
   defp persist_url(_story_id, _type, _target_id, _url), do: {:error, :unsupported_image_type}
 
   defp mark_running(job_id), do: status_update(job_id, :running)
@@ -164,6 +171,8 @@ defmodule Storytime.Workers.ImageGenWorker do
     _ = status_update(generation_job_id, :failed, inspect(reason))
 
     if story_id do
+      _ = Stories.maybe_mark_story_ready(story_id)
+
       StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_failed", %{
         story_id: story_id,
         job_type: map_job_type(type),

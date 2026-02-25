@@ -22,6 +22,7 @@ defmodule Storytime.Stories do
   }
 
   @type job_type :: :headshot | :scene | :dialogue_tts | :narration_tts | :music | :deploy
+  @active_generation_statuses [:pending, :running]
 
   def repo_running?, do: Process.whereis(Storytime.Repo) != nil
 
@@ -37,7 +38,7 @@ defmodule Storytime.Stories do
   end
 
   def list_stories do
-    Repo.all(from s in Story, order_by: [desc: s.inserted_at], limit: 100)
+    Repo.all(from(s in Story, order_by: [desc: s.inserted_at], limit: 100))
   end
 
   def get_story(id), do: Repo.get(Story, id)
@@ -47,9 +48,14 @@ defmodule Storytime.Stories do
   def get_story_by_slug(slug), do: Repo.get_by(Story, slug: slug)
 
   def update_story(story_id, attrs) do
+    attrs =
+      attrs
+      |> normalize_keys()
+      |> maybe_put_slug_from_title()
+
     story_id
     |> get_story!()
-    |> Story.changeset(normalize_keys(attrs))
+    |> Story.changeset(attrs)
     |> Repo.update()
   end
 
@@ -61,10 +67,11 @@ defmodule Storytime.Stories do
 
   def list_story_generation_jobs(story_id) do
     Repo.all(
-      from j in GenerationJob,
+      from(j in GenerationJob,
         where: j.story_id == ^story_id,
         order_by: [desc: j.inserted_at],
         limit: 200
+      )
     )
   end
 
@@ -101,9 +108,10 @@ defmodule Storytime.Stories do
 
   def list_characters(story_id) do
     Repo.all(
-      from c in Character,
+      from(c in Character,
         where: c.story_id == ^story_id,
         order_by: [asc: c.sort_order, asc: c.inserted_at]
+      )
     )
   end
 
@@ -145,9 +153,10 @@ defmodule Storytime.Stories do
 
   def list_pages(story_id) do
     Repo.all(
-      from p in Page,
+      from(p in Page,
         where: p.story_id == ^story_id,
         order_by: [asc: p.page_index, asc: p.sort_order, asc: p.inserted_at]
+      )
     )
   end
 
@@ -230,12 +239,13 @@ defmodule Storytime.Stories do
 
   def list_dialogue_lines(story_id) do
     Repo.all(
-      from d in DialogueLine,
+      from(d in DialogueLine,
         join: p in Page,
         on: p.id == d.page_id,
         where: p.story_id == ^story_id,
         order_by: [asc: p.page_index, asc: d.sort_order, asc: d.inserted_at],
         preload: [:character]
+      )
     )
   end
 
@@ -272,10 +282,11 @@ defmodule Storytime.Stories do
 
   def list_music_tracks(story_id) do
     Repo.all(
-      from t in MusicTrack,
+      from(t in MusicTrack,
         where: t.story_id == ^story_id,
         order_by: [asc: t.inserted_at],
         preload: [:music_spans]
+      )
     )
   end
 
@@ -347,6 +358,38 @@ defmodule Storytime.Stories do
     end
   end
 
+  def maybe_mark_story_ready(story_id) do
+    with %Story{} = story <- get_story(story_id) do
+      active_count =
+        Repo.one(
+          from(j in GenerationJob,
+            where:
+              j.story_id == ^story_id and j.status in ^@active_generation_statuses and
+                j.job_type != :deploy,
+            select: count(j.id)
+          )
+        ) || 0
+
+      cond do
+        story.status == :deployed ->
+          {:ok, story}
+
+        active_count > 0 ->
+          {:ok, story}
+
+        story.status == :ready ->
+          {:ok, story}
+
+        true ->
+          story
+          |> Story.changeset(%{status: :ready})
+          |> Repo.update()
+      end
+    else
+      nil -> {:error, :not_found}
+    end
+  end
+
   def mark_story_deployed(story_id, render_site_id, deploy_url) do
     with %Story{} = story <- get_story(story_id) do
       story
@@ -397,53 +440,61 @@ defmodule Storytime.Stories do
 
   defp get_story_character(story_id, character_id) do
     Repo.one(
-      from c in Character,
+      from(c in Character,
         where: c.story_id == ^story_id and c.id == ^character_id
+      )
     )
   end
 
   defp get_story_page(story_id, page_id) do
     Repo.one(
-      from p in Page,
+      from(p in Page,
         where: p.story_id == ^story_id and p.id == ^page_id
+      )
     )
   end
 
   defp get_story_dialogue_line(story_id, line_id) do
     Repo.one(
-      from d in DialogueLine,
+      from(d in DialogueLine,
         join: p in Page,
         on: p.id == d.page_id,
         where: p.story_id == ^story_id and d.id == ^line_id
+      )
     )
   end
 
   defp get_story_music_track(story_id, track_id) do
     Repo.one(
-      from t in MusicTrack,
+      from(t in MusicTrack,
         where: t.story_id == ^story_id and t.id == ^track_id
+      )
     )
   end
 
   defp get_story_music_span(story_id, span_id) do
     Repo.one(
-      from s in MusicSpan,
+      from(s in MusicSpan,
         join: t in MusicTrack,
         on: s.track_id == t.id,
         where: t.story_id == ^story_id and s.id == ^span_id
+      )
     )
   end
 
   defp next_character_sort(story_id) do
-    (Repo.one(from c in Character, where: c.story_id == ^story_id, select: max(c.sort_order)) || -1) + 1
+    (Repo.one(from(c in Character, where: c.story_id == ^story_id, select: max(c.sort_order))) ||
+       -1) + 1
   end
 
   defp next_page_index(story_id) do
-    (Repo.one(from p in Page, where: p.story_id == ^story_id, select: max(p.page_index)) || -1) + 1
+    (Repo.one(from(p in Page, where: p.story_id == ^story_id, select: max(p.page_index))) || -1) +
+      1
   end
 
   defp next_dialogue_sort(page_id) do
-    (Repo.one(from d in DialogueLine, where: d.page_id == ^page_id, select: max(d.sort_order)) || -1) + 1
+    (Repo.one(from(d in DialogueLine, where: d.page_id == ^page_id, select: max(d.sort_order))) ||
+       -1) + 1
   end
 
   defp put_slug_if_missing(%{slug: slug} = attrs) when is_binary(slug) and slug != "", do: attrs
@@ -451,6 +502,22 @@ defmodule Storytime.Stories do
   defp put_slug_if_missing(attrs) do
     title = Map.get(attrs, :title, "story")
     Map.put(attrs, :slug, slugify(title))
+  end
+
+  defp maybe_put_slug_from_title(attrs) do
+    slug = Map.get(attrs, :slug)
+    title = Map.get(attrs, :title)
+
+    cond do
+      is_binary(slug) and String.trim(slug) != "" ->
+        attrs
+
+      is_binary(title) and String.trim(title) != "" ->
+        Map.put(attrs, :slug, slugify(title))
+
+      true ->
+        attrs
+    end
   end
 
   defp slugify(text) do

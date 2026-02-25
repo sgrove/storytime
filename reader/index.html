@@ -290,6 +290,7 @@
     <audio id="musicA" preload="metadata" loop></audio>
     <audio id="musicB" preload="metadata" loop></audio>
 
+    <script src="https://unpkg.com/@instantdb/core@0.22.143/dist/standalone/index.umd.cjs"></script>
     <script>
       const state = {
         config: null,
@@ -301,16 +302,21 @@
         currentHighlight: null,
         activeMusicUrl: null,
         musicDeck: "a",
+        narrateToken: 0,
+        lastPointerAt: 0,
         participants: new Map(),
         identity: {
           id: `reader-${Math.random().toString(36).slice(2, 10)}`,
           name: `Reader ${Math.floor(Math.random() * 900 + 100)}`
         },
         collab: {
-          channel: null,
+          backend: "none",
+          db: null,
+          room: null,
           isHost: true,
           followHost: true,
-          heartbeat: null
+          heartbeat: null,
+          teardown: []
         }
       };
 
@@ -401,10 +407,10 @@
         $("storyMeta").textContent = `${pack.slug || ""} • mode: ${state.mode}`;
 
         updateMusicForPage();
-        sendCollab({ type: "page", pageIndex: state.pageIndex, host: state.collab.isHost });
+        sendPageSync();
 
         if (state.mode === "narrate") {
-          playNarration().catch(showError);
+          runNarratePageSequence().catch(showError);
         }
       }
 
@@ -441,6 +447,12 @@
         return payload;
       }
 
+      function flattenTimingWords(timings) {
+        const segments = timings?.segments;
+        if (!Array.isArray(segments)) return [];
+        return segments.flatMap((segment) => Array.isArray(segment?.words) ? segment.words : []);
+      }
+
       async function playVoice(audioUrl, timingsUrl, targetContainer) {
         if (!audioUrl) throw new Error("missing_audio_url");
 
@@ -450,7 +462,7 @@
         voice.volume = Number($("voiceVolume").value || 0.9);
 
         const timings = await fetchTimings(timingsUrl);
-        const words = timings?.segments?.[0]?.words || [];
+        const words = flattenTimingWords(timings);
 
         state.currentHighlight = { targetContainer, words };
 
@@ -476,11 +488,70 @@
         state.voicePlaying = { type: "dialogue", lineId };
       }
 
-      function stopVoice() {
+      function cancelNarrateSequence() {
+        state.narrateToken += 1;
+      }
+
+      async function waitForVoiceEnd(token) {
+        return new Promise((resolve) => {
+          const voice = $("voiceAudio");
+
+          if (token !== state.narrateToken) {
+            resolve(false);
+            return;
+          }
+
+          const done = (ok) => {
+            voice.removeEventListener("ended", onEnded);
+            voice.removeEventListener("error", onError);
+            voice.removeEventListener("pause", onPause);
+            resolve(ok && token === state.narrateToken);
+          };
+
+          const onEnded = () => done(true);
+          const onError = () => done(false);
+          const onPause = () => done(voice.ended);
+
+          voice.addEventListener("ended", onEnded, { once: true });
+          voice.addEventListener("error", onError, { once: true });
+          voice.addEventListener("pause", onPause, { once: true });
+        });
+      }
+
+      async function runNarratePageSequence() {
+        const page = currentPage();
+        if (!page) return;
+
+        const token = state.narrateToken + 1;
+        state.narrateToken = token;
+
+        if (page.narration?.audioUrl) {
+          await playNarration();
+          const completed = await waitForVoiceEnd(token);
+          if (!completed || state.mode !== "narrate") return;
+        }
+
+        for (const line of page.dialogue || []) {
+          if (token !== state.narrateToken || state.mode !== "narrate") return;
+          if (!line.audioUrl) continue;
+
+          await playLine(line.id);
+          const completed = await waitForVoiceEnd(token);
+          if (!completed || state.mode !== "narrate") return;
+        }
+
+        if (token === state.narrateToken && state.mode === "narrate") {
+          nextPage({ auto: true });
+        }
+      }
+
+      function stopVoice(opts = {}) {
         const voice = $("voiceAudio");
+        if (!opts.keepNarrate) cancelNarrateSequence();
         voice.pause();
         voice.currentTime = 0;
         state.voicePlaying = null;
+        state.currentHighlight = null;
         clearHighlighting();
       }
 
@@ -525,14 +596,16 @@
         crossfadeTo(track.audioUrl).catch(() => {});
       }
 
-      function nextPage() {
+      function nextPage(opts = {}) {
         if (!state.pack) return;
+        if (!opts.auto) cancelNarrateSequence();
         const last = (state.pack.pages || []).length - 1;
         state.pageIndex = Math.min(last, state.pageIndex + 1);
         renderPage();
       }
 
-      function prevPage() {
+      function prevPage(opts = {}) {
+        if (!opts.auto) cancelNarrateSequence();
         state.pageIndex = Math.max(0, state.pageIndex - 1);
         renderPage();
       }
@@ -557,9 +630,7 @@
         });
 
         voice.addEventListener("ended", () => {
-          if (state.mode === "narrate" && state.voicePlaying?.type === "narration") {
-            nextPage();
-          }
+          state.voicePlaying = null;
         });
 
         $("voiceVolume").addEventListener("input", () => {
@@ -583,14 +654,23 @@
           if (action === "prev-page") prevPage();
           if (action === "toggle-mode") {
             state.mode = state.mode === "read_alone" ? "narrate" : "read_alone";
+            if (state.mode !== "narrate") {
+              cancelNarrateSequence();
+              stopVoice({ keepNarrate: true });
+            }
             renderPage();
           }
           if (action === "play-narration") playNarration().catch(showError);
-          if (action === "pause-voice") $("voiceAudio").pause();
+          if (action === "pause-voice") {
+            cancelNarrateSequence();
+            $("voiceAudio").pause();
+          }
           if (action === "stop-voice") stopVoice();
           if (action === "play-line") playLine(node.dataset.lineId).catch(showError);
           if (action === "toggle-host") {
             state.collab.isHost = !state.collab.isHost;
+            sendPresence();
+            sendPageSync();
             renderCollab();
           }
           if (action === "toggle-follow") {
@@ -616,39 +696,47 @@
         });
       }
 
-      function initCollab() {
-        const roomKey = state.pack?.slug || state.config.storySlug || state.config.storyId || "story";
-        state.collab.channel = new BroadcastChannel(`storytime-${roomKey}`);
+      function collabRoomKey() {
+        return state.pack?.slug || state.config.storySlug || state.config.storyId || "story";
+      }
 
-        state.collab.channel.onmessage = (ev) => {
-          const msg = ev.data || {};
-          if (!msg || msg.from === state.identity.id) return;
+      function clampPageIndex(index) {
+        const pageCount = state.pack?.pages?.length || 0;
+        if (pageCount <= 0) return 0;
+        return Math.max(0, Math.min(pageCount - 1, Number(index) || 0));
+      }
 
-          if (msg.type === "presence") {
-            state.participants.set(msg.from, {
-              id: msg.from,
-              name: msg.name,
-              pageIndex: msg.pageIndex,
-              host: !!msg.host,
-              cursor: msg.cursor,
-              seenAt: Date.now()
-            });
-            renderCollab();
-            renderCursors();
-          }
+      function teardownCollab() {
+        if (state.collab.heartbeat) {
+          clearInterval(state.collab.heartbeat);
+          state.collab.heartbeat = null;
+        }
 
-          if (msg.type === "page" && state.collab.followHost && !state.collab.isHost && msg.host) {
-            state.pageIndex = msg.pageIndex;
-            renderPage();
-          }
-        };
+        for (const stop of state.collab.teardown) {
+          try { stop(); } catch (_err) {}
+        }
+
+        state.collab.teardown = [];
+        state.collab.room = null;
+        state.collab.db = null;
+        state.collab.backend = "none";
+      }
+
+      async function initCollab() {
+        teardownCollab();
+        const roomKey = collabRoomKey();
+
+        await initInstantCollab(roomKey);
 
         state.collab.heartbeat = setInterval(() => {
           sendPresence();
-          pruneParticipants();
         }, 1800);
 
         $("stage").addEventListener("pointermove", (ev) => {
+          const now = Date.now();
+          if (now - state.lastPointerAt < 80) return;
+          state.lastPointerAt = now;
+
           const rect = $("stage").getBoundingClientRect();
           const cursor = {
             x: (ev.clientX - rect.left) / rect.width,
@@ -660,27 +748,141 @@
         sendPresence();
       }
 
-      function sendCollab(payload) {
-        if (!state.collab.channel) return;
-        state.collab.channel.postMessage({ from: state.identity.id, name: state.identity.name, ...payload });
+      async function initInstantCollab(roomKey) {
+        const appId = state.config?.instantAppId;
+        const instant = window.instant;
+
+        if (!appId || !instant || typeof instant.init !== "function") {
+          state.collab.backend = "disabled";
+          throw new Error("instantdb_not_configured");
+        }
+
+        try {
+          const db = instant.init({ appId });
+          const room = db.joinRoom("storytime", roomKey, {
+            initialPresence: currentPresencePayload()
+          });
+
+          state.collab.backend = "instantdb";
+          state.collab.db = db;
+          state.collab.room = room;
+
+          const unsubPresence = room.subscribePresence({}, (response) => {
+            applyInstantPresence(response);
+          });
+
+          const unsubTopic = room.subscribeTopic("page_sync", (message) => {
+            handleCollabMessage(extractTopicPayload(message));
+          });
+
+          state.collab.teardown.push(
+            () => unsubPresence && unsubPresence(),
+            () => unsubTopic && unsubTopic(),
+            () => room.leaveRoom && room.leaveRoom(),
+            () => db.shutdown && db.shutdown()
+          );
+
+          return;
+        } catch (err) {
+          state.collab.backend = "disabled";
+          throw err;
+        }
       }
 
-      function sendPresence(cursor = null) {
-        sendCollab({
-          type: "presence",
+      function extractTopicPayload(message) {
+        if (message && typeof message === "object" && message.data && typeof message.data === "object") {
+          return message.data;
+        }
+        return message || {};
+      }
+
+      function currentPresencePayload(cursor = null) {
+        return {
+          readerId: state.identity.id,
+          name: state.identity.name,
           pageIndex: state.pageIndex,
           host: state.collab.isHost,
           cursor
-        });
+        };
       }
 
-      function pruneParticipants() {
-        const cutoff = Date.now() - 7000;
-        [...state.participants.entries()].forEach(([id, p]) => {
-          if ((p.seenAt || 0) < cutoff) state.participants.delete(id);
+      function applyInstantPresence(response) {
+        const peers = response?.peers || {};
+        state.participants.clear();
+
+        Object.entries(peers).forEach(([peerId, peer]) => {
+          const participantId = peer?.readerId || peer?.peerId || peerId;
+          if (!participantId || participantId === state.identity.id) return;
+
+          state.participants.set(participantId, {
+            id: participantId,
+            name: peer?.name || `Reader ${peerId.slice(-4)}`,
+            pageIndex: clampPageIndex(peer?.pageIndex),
+            host: !!peer?.host,
+            cursor: peer?.cursor || null,
+            seenAt: Date.now()
+          });
         });
+
+        maybeFollowHost();
         renderCollab();
         renderCursors();
+      }
+
+      function handleCollabMessage(msg) {
+        if (!msg || msg.from === state.identity.id) return;
+
+        if (msg.type === "presence") {
+          state.participants.set(msg.from, {
+            id: msg.from,
+            name: msg.name || "Reader",
+            pageIndex: clampPageIndex(msg.pageIndex),
+            host: !!msg.host,
+            cursor: msg.cursor || null,
+            seenAt: Date.now()
+          });
+          maybeFollowHost();
+          renderCollab();
+          renderCursors();
+          return;
+        }
+
+        if (msg.type === "page") {
+          if (state.collab.followHost && !state.collab.isHost && msg.host) {
+            state.pageIndex = clampPageIndex(msg.pageIndex);
+            renderPage();
+          }
+        }
+      }
+
+      function maybeFollowHost() {
+        if (!state.collab.followHost || state.collab.isHost) return;
+        const host = [...state.participants.values()].find((p) => p.host);
+        if (!host) return;
+        const nextIndex = clampPageIndex(host.pageIndex);
+        if (nextIndex !== state.pageIndex) {
+          state.pageIndex = nextIndex;
+          renderPage();
+        }
+      }
+
+      function sendPageSync() {
+        if (!state.collab.room) return;
+
+        const payload = {
+          type: "page",
+          from: state.identity.id,
+          name: state.identity.name,
+          pageIndex: state.pageIndex,
+          host: state.collab.isHost
+        };
+
+        state.collab.room.publishTopic("page_sync", payload);
+      }
+
+      function sendPresence(cursor = null) {
+        if (!state.collab.room) return;
+        state.collab.room.publishPresence(currentPresencePayload(cursor));
       }
 
       function renderCursors() {
@@ -696,7 +898,7 @@
       function renderCollab() {
         const peers = [...state.participants.values()];
         $("collabStatus").textContent =
-          `You: ${state.identity.name} | role: ${state.collab.isHost ? "host" : "guest"} | follow host: ${state.collab.followHost ? "on" : "off"}`;
+          `You: ${state.identity.name} | role: ${state.collab.isHost ? "host" : "guest"} | follow host: ${state.collab.followHost ? "on" : "off"} | backend: ${state.collab.backend}`;
 
         $("presenceList").innerHTML = peers.length
           ? peers.map((p) => `<div class="presence">${esc(p.name)} • page ${p.pageIndex + 1} ${p.host ? "• host" : ""}</div>`).join("")
@@ -710,9 +912,13 @@
           await loadPack();
           initAudioListeners();
           initControls();
-          initCollab();
+          await initCollab().catch(showError);
           renderCollab();
           renderPage();
+
+          window.addEventListener("beforeunload", () => {
+            teardownCollab();
+          });
         } catch (err) {
           showError(err);
         }

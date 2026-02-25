@@ -251,7 +251,8 @@ defmodule StorytimeWeb.StoryChannel do
   end
 
   defp enqueue_generation(socket, generation_type, target_id, payload) do
-    with {:ok, job} <- Generation.enqueue(socket.assigns.story_id, generation_type, target_id, payload) do
+    with {:ok, job} <-
+           Generation.enqueue(socket.assigns.story_id, generation_type, target_id, payload) do
       broadcast!(socket, "generation_started", %{
         story_id: socket.assigns.story_id,
         job_type: to_string(generation_type),
@@ -280,6 +281,9 @@ defmodule StorytimeWeb.StoryChannel do
   defp normalize_error(:missing_id), do: %{error: "missing_id"}
   defp normalize_error({:missing_field, key}), do: %{error: "missing_field", field: key}
   defp normalize_error(:invalid_page_order), do: %{error: "invalid_page_order"}
+  defp normalize_error(:invalid_subdomain), do: %{error: "invalid_subdomain"}
+  defp normalize_error(:story_missing_content), do: %{error: "story_missing_content"}
+  defp normalize_error(:nothing_to_generate), do: %{error: "nothing_to_generate"}
 
   defp normalize_error(%Ecto.Changeset{} = changeset) do
     %{error: "validation_failed", details: traverse_errors(changeset)}

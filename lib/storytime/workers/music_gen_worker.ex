@@ -22,7 +22,9 @@ defmodule Storytime.Workers.MusicGenWorker do
          {:ok, asset_url} <- Assets.write_binary(story_id, "music_#{target_id}.mp3", audio_bytes),
          {:ok, _} <- Stories.set_music_audio(story_id, target_id, asset_url),
          :ok <- mark_completed(generation_job_id) do
+      _ = Stories.maybe_mark_story_ready(story_id)
       broadcast_progress(story_id, target_id, generation_job_id, 100)
+
       StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
         story_id: story_id,
         job_type: "music",
@@ -30,6 +32,7 @@ defmodule Storytime.Workers.MusicGenWorker do
         job_id: generation_job_id,
         url: asset_url
       })
+
       {:ok, %{url: asset_url, provider: provider}}
     else
       {:error, reason} -> handle_failure(args, reason)
@@ -53,7 +56,8 @@ defmodule Storytime.Workers.MusicGenWorker do
   end
 
   defp generate_music(track) do
-    prompt = "Gentle instrumental children's story background music, mood: #{track.mood || "calm"}."
+    prompt =
+      "Gentle instrumental children's story background music, mood: #{track.mood || "calm"}."
 
     case maybe_sonauto(prompt) do
       {:ok, bytes} -> {:ok, bytes, "sonauto"}
@@ -76,10 +80,12 @@ defmodule Storytime.Workers.MusicGenWorker do
 
       create_body = %{prompt: prompt, duration_seconds: 20}
 
-      with {:ok, %{status: status, body: create_body}} when status in [200, 201] <- Req.post("#{base}/create", headers: headers, json: create_body),
+      with {:ok, %{status: status, body: create_body}} when status in [200, 201] <-
+             Req.post("#{base}/create", headers: headers, json: create_body),
            task_id when is_binary(task_id) <- extract_task_id(create_body),
            {:ok, audio_url} <- poll_sonauto_audio_url(base, headers, task_id, 10),
-           {:ok, %{status: 200, body: audio_bytes}} when is_binary(audio_bytes) <- Req.get(audio_url) do
+           {:ok, %{status: 200, body: audio_bytes}} when is_binary(audio_bytes) <-
+             Req.get(audio_url) do
         {:ok, audio_bytes}
       else
         {:ok, %{status: status, body: body}} -> {:error, {:sonauto_error, status, body}}
@@ -103,16 +109,25 @@ defmodule Storytime.Workers.MusicGenWorker do
     case Req.get(status_url, headers: headers) do
       {:ok, %{status: 200, body: body}} ->
         cond do
-          is_binary(body["audio_url"]) -> {:ok, body["audio_url"]}
-          is_binary(body["url"]) -> {:ok, body["url"]}
-          body["status"] in ["failed", "error"] -> {:error, {:sonauto_failed, body}}
+          is_binary(body["audio_url"]) ->
+            {:ok, body["audio_url"]}
+
+          is_binary(body["url"]) ->
+            {:ok, body["url"]}
+
+          body["status"] in ["failed", "error"] ->
+            {:error, {:sonauto_failed, body}}
+
           true ->
             Process.sleep(1500)
             poll_sonauto_audio_url(base, headers, task_id, attempts_left - 1)
         end
 
-      {:ok, %{status: status, body: body}} -> {:error, {:sonauto_poll_error, status, body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:sonauto_poll_error, status, body}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -165,6 +180,8 @@ defmodule Storytime.Workers.MusicGenWorker do
     _ = status_update(generation_job_id, :failed, inspect(reason))
 
     if story_id do
+      _ = Stories.maybe_mark_story_ready(story_id)
+
       StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_failed", %{
         story_id: story_id,
         job_type: "music",
