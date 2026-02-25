@@ -1,6 +1,10 @@
+/* ================================================================
+   Storytime Reader — Cottage Storybook Theme
+   ================================================================ */
+
 :root {
-  --void: #020617;
-  --deep: #0f172a;
+  --void: #080604;
+  --deep: #12100a;
   --glass-bg: rgba(255, 255, 255, 0.14);
   --glass-solid: rgba(240, 235, 225, 0.86);
   --glass-border: rgba(255, 255, 255, 0.2);
@@ -12,6 +16,11 @@
   --gold: #c9a227;
   --gold-soft: #e5c675;
   --warm-white: #f8f4ec;
+  --parchment: #f7f0e3;
+  --parchment-dark: #e8d5b7;
+  --leather: #5c3a2e;
+  --leather-light: #8b5e3c;
+  --leather-dark: #3d2517;
   --warn: #f5be96;
   --danger: #de998f;
   --ok: #9bc7a5;
@@ -31,41 +40,379 @@ body {
   font-family: "Nunito", "Avenir Next", "Trebuchet MS", sans-serif;
   color: var(--warm-white);
   background:
-    /* vignette */
-    radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.5) 100%),
-    /* subtle firelight warmth at bottom-left */
-    radial-gradient(circle at 5% 92%, rgba(200, 120, 40, 0.08), transparent 30%),
-    /* candle-like warm spots at top edges */
-    radial-gradient(circle at 15% 3%, rgba(230, 180, 80, 0.05), transparent 18%),
-    radial-gradient(circle at 85% 5%, rgba(230, 180, 80, 0.04), transparent 16%),
-    /* warm glow at bottom center */
-    radial-gradient(ellipse at 50% 97%, rgba(201, 162, 39, 0.05), transparent 40%),
-    /* existing atmospheric gradients */
-    radial-gradient(circle at 16% 8%, rgba(71, 104, 168, 0.3), transparent 36%),
-    radial-gradient(circle at 82% 12%, rgba(108, 87, 155, 0.26), transparent 38%),
+    /* Deep vignette */
+    radial-gradient(ellipse at center, transparent 30%, rgba(0, 0, 0, 0.6) 100%),
+    /* Fireplace glow at bottom-left */
+    radial-gradient(circle at 8% 90%, rgba(200, 120, 40, 0.18), transparent 35%),
+    radial-gradient(circle at 12% 85%, rgba(255, 160, 60, 0.1), transparent 25%),
+    /* Candle spots along top */
+    radial-gradient(circle at 15% 4%, rgba(230, 180, 80, 0.09), transparent 12%),
+    radial-gradient(circle at 50% 3%, rgba(230, 180, 80, 0.06), transparent 10%),
+    radial-gradient(circle at 85% 4%, rgba(230, 180, 80, 0.08), transparent 12%),
+    /* Warm ambient wash at bottom center */
+    radial-gradient(ellipse at 50% 95%, rgba(201, 162, 39, 0.08), transparent 50%),
+    /* Deep warm base (brown-black, not cold blue) */
     linear-gradient(180deg, var(--deep), var(--void));
+  background-color: var(--void);
 }
+
+/* ----------------------------------------------------------------
+   Reader Shell — Single-column (sidebar is now overlay)
+   ---------------------------------------------------------------- */
 
 .reader-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: 1fr;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ----------------------------------------------------------------
+   Cottage Environment Layers
+   ---------------------------------------------------------------- */
+
+.cottage-env {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cottage-curtains {
+  position: absolute;
+  inset: 0;
+  background:
+    /* Left curtain drape */
+    linear-gradient(90deg, rgba(90, 50, 30, 0.35) 0%, transparent 8%),
+    /* Right curtain drape */
+    linear-gradient(270deg, rgba(90, 50, 30, 0.35) 0%, transparent 8%);
+}
+
+.cottage-fairy-lights {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background:
+    radial-gradient(circle 4px at 8% 40%, rgba(255, 230, 160, 0.7), transparent),
+    radial-gradient(circle 3px at 16% 55%, rgba(255, 220, 140, 0.5), transparent),
+    radial-gradient(circle 4px at 24% 35%, rgba(255, 230, 160, 0.65), transparent),
+    radial-gradient(circle 3px at 33% 50%, rgba(255, 215, 130, 0.5), transparent),
+    radial-gradient(circle 4px at 42% 42%, rgba(255, 230, 160, 0.6), transparent),
+    radial-gradient(circle 3px at 52% 48%, rgba(255, 220, 140, 0.5), transparent),
+    radial-gradient(circle 4px at 61% 38%, rgba(255, 230, 160, 0.65), transparent),
+    radial-gradient(circle 3px at 70% 55%, rgba(255, 215, 130, 0.5), transparent),
+    radial-gradient(circle 4px at 79% 40%, rgba(255, 230, 160, 0.6), transparent),
+    radial-gradient(circle 3px at 88% 50%, rgba(255, 220, 140, 0.55), transparent),
+    radial-gradient(circle 4px at 95% 42%, rgba(255, 230, 160, 0.6), transparent);
+  animation: fairy-twinkle 4s ease-in-out infinite alternate;
+}
+
+@keyframes fairy-twinkle {
+  0% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.cottage-firelight {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+  height: 200px;
+  background: radial-gradient(
+    ellipse at 20% 100%,
+    rgba(255, 140, 50, 0.12),
+    rgba(255, 100, 30, 0.06) 40%,
+    transparent 70%
+  );
+  animation: firelight-flicker 3s ease-in-out infinite alternate;
+}
+
+@keyframes firelight-flicker {
+  0% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  33% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  66% {
+    opacity: 0.85;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 0.95;
+    transform: scale(1.02);
+  }
+}
+
+/* Golden sparkle particles */
+
+.sparkle-field {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
   overflow: hidden;
 }
+
+.sparkle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(255, 230, 160, 0.8);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255, 220, 120, 0.4);
+  animation: sparkle-drift linear infinite;
+  opacity: 0;
+}
+
+@keyframes sparkle-drift {
+  0% {
+    opacity: 0;
+    transform: translateY(0) translateX(0);
+  }
+  10% {
+    opacity: 0.8;
+  }
+  90% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100vh) translateX(30px);
+  }
+}
+
+.s1 {
+  left: 10%;
+  bottom: -5%;
+  animation-duration: 12s;
+  animation-delay: 0s;
+}
+.s2 {
+  left: 25%;
+  bottom: -8%;
+  animation-duration: 15s;
+  animation-delay: 2s;
+}
+.s3 {
+  left: 40%;
+  bottom: -3%;
+  animation-duration: 10s;
+  animation-delay: 4s;
+}
+.s4 {
+  left: 55%;
+  bottom: -6%;
+  animation-duration: 14s;
+  animation-delay: 1s;
+}
+.s5 {
+  left: 70%;
+  bottom: -4%;
+  animation-duration: 11s;
+  animation-delay: 5s;
+}
+.s6 {
+  left: 85%;
+  bottom: -7%;
+  animation-duration: 13s;
+  animation-delay: 3s;
+}
+.s7 {
+  left: 35%;
+  bottom: -9%;
+  animation-duration: 16s;
+  animation-delay: 7s;
+}
+.s8 {
+  left: 60%;
+  bottom: -2%;
+  animation-duration: 9s;
+  animation-delay: 6s;
+}
+
+/* ----------------------------------------------------------------
+   Stage
+   ---------------------------------------------------------------- */
 
 .stage {
   position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr auto;
   min-height: 100vh;
+  align-content: start;
+  padding-bottom: 100px;
+  z-index: 1;
 }
+
+/* ----------------------------------------------------------------
+   Open Book Layout
+   ---------------------------------------------------------------- */
+
+.open-book {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 12px 1fr;
+  width: min(96%, 1400px);
+  margin: 80px auto 40px;
+  min-height: 60vh;
+  border-radius: 8px;
+  box-shadow:
+    0 20px 60px rgba(26, 16, 8, 0.5),
+    0 0 0 1px rgba(201, 162, 39, 0.15);
+  perspective: 1200px;
+}
+
+/* Book page base */
+
+.book-page {
+  position: relative;
+}
+
+/* Left page — parchment text */
+
+.book-page-left {
+  background: var(--parchment);
+  color: var(--story-ink);
+  border-radius: 8px 0 0 8px;
+  padding: 36px 28px 40px 36px;
+  overflow-y: auto;
+  max-height: calc(100vh - 240px);
+  box-shadow: inset -4px 0 12px rgba(0, 0, 0, 0.06);
+  z-index: 1;
+}
+
+/* Parchment noise texture on left page */
+.book-page-left::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 8px 0 0 8px;
+  filter: url(#parchment-noise);
+  opacity: 0.06;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Book spine — leather binding */
+
+.book-spine {
+  background: linear-gradient(
+    180deg,
+    var(--leather),
+    var(--leather-light),
+    var(--leather)
+  );
+  box-shadow:
+    inset 2px 0 4px rgba(0, 0, 0, 0.3),
+    inset -2px 0 4px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 2;
+}
+
+.book-spine::before {
+  content: "";
+  position: absolute;
+  top: 10%;
+  bottom: 10%;
+  left: 50%;
+  width: 1px;
+  background: rgba(201, 162, 39, 0.3);
+  transform: translateX(-50%);
+}
+
+/* Right page — illustration */
+
+.book-page-right {
+  background: #f0e8d8;
+  border-radius: 0 8px 8px 0;
+  padding: 16px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Parchment noise texture on right page */
+.book-page-right::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 0 8px 8px 0;
+  filter: url(#parchment-noise);
+  opacity: 0.04;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Page curl at bottom-right */
+.book-page-right::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(315deg, #e8d5b7 0%, #f0e8d8 45%, transparent 50%);
+  border-radius: 0 0 8px 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Page numbers */
+
+.page-number {
+  font-family: "Cinzel", "Georgia", serif;
+  font-size: 13px;
+  color: #8b7355;
+  position: absolute;
+  bottom: 12px;
+}
+
+.page-number-left {
+  left: 36px;
+}
+
+.page-number-right {
+  right: 28px;
+}
+
+/* Page turn transitions */
+
+.book-page-left,
+.book-page-right {
+  transition:
+    opacity 300ms ease,
+    transform 300ms ease;
+}
+
+.open-book.page-turning-forward .book-page-left,
+.open-book.page-turning-forward .book-page-right {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+
+.open-book.page-turning-backward .book-page-left,
+.open-book.page-turning-backward .book-page-right {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+/* ----------------------------------------------------------------
+   Scene (right page content)
+   ---------------------------------------------------------------- */
 
 .scene-layer {
   position: relative;
-  display: grid;
-  place-items: center;
-  padding: 72px 22px 176px;
-  overflow: hidden;
 }
 
 .scene-bg {
@@ -76,43 +423,49 @@ body {
   filter: blur(42px) saturate(0.85) brightness(0.45);
   transform: scale(1.1);
   opacity: 0.88;
+  border-radius: 0 8px 8px 0;
 }
 
 .scene-vignette {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at center, transparent 36%, rgba(1, 5, 14, 0.78));
+  background: radial-gradient(
+    circle at center,
+    transparent 36%,
+    rgba(1, 5, 14, 0.78)
+  );
   pointer-events: none;
+  border-radius: 0 8px 8px 0;
 }
 
 .scene-card {
   position: relative;
-  width: min(96%, 1320px);
-  max-height: calc(100vh - 300px);
-  border-radius: 24px;
+  width: 100%;
+  max-height: calc(100vh - 280px);
+  border-radius: 4px;
   overflow: hidden;
-  border: 2px solid rgba(201, 162, 39, 0.25);
-  box-shadow:
-    0 0 0 1px rgba(245, 227, 192, 0.1),
-    0 28px 80px rgba(0, 0, 0, 0.5),
-    0 0 100px rgba(0, 0, 0, 0.2);
-  background: rgba(6, 12, 22, 0.94);
+  border: 1px solid var(--parchment-dark);
+  box-shadow: 0 2px 8px rgba(26, 16, 8, 0.15);
+  background: var(--story-ink);
+  z-index: 1;
 }
 
 .scene-card img {
   width: 100%;
   height: 100%;
-  max-height: calc(100vh - 300px);
+  max-height: calc(100vh - 280px);
   object-fit: contain;
   display: block;
-  background: rgba(7, 13, 23, 0.96);
+  background: rgba(20, 16, 10, 0.96);
 }
 
 .scene-empty {
   min-height: 320px;
   display: grid;
   place-items: center;
-  color: rgba(246, 238, 225, 0.78);
+  color: #8b7355;
+  font-family: "Cinzel", "Georgia", serif;
+  font-size: 15px;
 }
 
 .cursor-layer {
@@ -130,41 +483,47 @@ body {
   font-weight: 800;
   color: #1f1208;
   background: linear-gradient(180deg, #ffd990, #efbe64);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 6px 14px rgba(26, 16, 8, 0.28);
   border: 1px solid rgba(86, 58, 20, 0.38);
 }
 
-.top-hud {
+/* ----------------------------------------------------------------
+   Parchment Scroll Ribbon (top bar)
+   ---------------------------------------------------------------- */
+
+.scroll-ribbon {
   position: absolute;
   z-index: 3;
-  top: 16px;
-  left: 16px;
-  right: 16px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
   align-items: center;
+  gap: 12px;
 }
 
-.glass-panel {
-  border-radius: 16px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-solid);
+.ribbon-body {
+  background: linear-gradient(180deg, var(--parchment), var(--parchment-dark));
   color: var(--story-ink);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32);
+  padding: 8px 28px;
+  border-radius: 4px;
+  box-shadow:
+    0 4px 12px rgba(26, 16, 8, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  text-align: center;
+  position: relative;
 }
 
-@supports (backdrop-filter: blur(1px)) {
-  .glass-panel {
-    background: var(--glass-bg);
-    color: var(--warm-white);
-    backdrop-filter: blur(20px) saturate(1.3);
-    -webkit-backdrop-filter: blur(20px) saturate(1.3);
-  }
+.ribbon-body .story-title {
+  color: var(--story-ink);
+  font-size: clamp(16px, 2.2vw, 22px);
+  margin: 0;
 }
 
-.top-hud-card {
-  padding: 10px 14px;
+.ribbon-body .ribbon-meta {
+  font-size: 12px;
+  color: #5c4030;
+  margin-top: 2px;
 }
 
 .story-title {
@@ -180,39 +539,64 @@ body {
   opacity: 0.86;
 }
 
-.presence-chip {
-  padding: 10px 12px;
-  font-size: 13px;
+.scroll-ribbon .presence-chip {
+  background: rgba(232, 213, 183, 0.85);
+  color: var(--story-ink-soft);
+  border: 1px solid rgba(196, 168, 130, 0.5);
+  border-radius: 12px;
+  padding: 6px 10px;
+  font-size: 12px;
   font-weight: 700;
+  box-shadow: 0 2px 6px rgba(26, 16, 8, 0.2);
 }
+
+/* ----------------------------------------------------------------
+   Narration & Dialogue (left page)
+   ---------------------------------------------------------------- */
 
 .text-deck {
   position: relative;
-  margin: -140px auto 18px;
-  width: min(92%, 920px);
-  z-index: 3;
-  padding: 16px 18px;
+  z-index: 1;
 }
 
 .narration {
-  font-size: clamp(18px, 2.4vw, 24px);
-  line-height: 1.72;
-  font-weight: 600;
+  font-family: "Merriweather", "Georgia", serif;
+  font-size: clamp(16px, 2vw, 20px);
+  line-height: 1.85;
+  font-weight: 400;
   letter-spacing: 0.01em;
+  color: var(--story-ink);
+}
+
+/* Drop cap for narration first letter */
+.narration::first-letter {
+  font-family: "Cinzel", "Georgia", serif;
+  font-size: 3.2em;
+  float: left;
+  line-height: 0.8;
+  margin-right: 6px;
+  margin-top: 4px;
+  color: #8b7320;
 }
 
 .word {
-  transition: background-color 120ms linear, color 120ms linear;
+  transition:
+    background-color 120ms linear,
+    color 120ms linear;
 }
 
 .word.active {
   color: #201003;
-  background: linear-gradient(180deg, rgba(239, 197, 110, 0.92), rgba(210, 156, 52, 0.95));
-  border-radius: 6px;
+  background: linear-gradient(
+    180deg,
+    rgba(239, 197, 110, 0.7),
+    rgba(210, 156, 52, 0.75)
+  );
+  border-radius: 4px;
   padding: 1px 3px;
   box-shadow:
-    0 0 8px rgba(201, 162, 39, 0.4),
-    0 0 20px rgba(201, 162, 39, 0.15);
+    0 0 6px rgba(201, 162, 39, 0.3),
+    0 0 14px rgba(201, 162, 39, 0.1);
 }
 
 .dialogue-list {
@@ -222,24 +606,36 @@ body {
 }
 
 .dialogue-line {
-  border-radius: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(10, 20, 32, 0.56);
+  border-radius: 8px;
+  padding: 12px 14px;
+  border: 1px solid #d4c4a8;
+  border-left: 3px solid var(--gold);
+  background: rgba(247, 240, 227, 0.6);
+  color: var(--story-ink);
 }
 
 .dialogue-line.active {
-  border-color: rgba(241, 200, 116, 0.92);
+  border-color: rgba(201, 162, 39, 0.7);
+  border-left-color: var(--gold);
   box-shadow:
     0 0 0 1px rgba(230, 182, 75, 0.42),
     0 0 12px rgba(201, 162, 39, 0.2);
-  background: rgba(27, 34, 52, 0.88);
+  background: rgba(232, 213, 183, 0.8);
   animation: glow-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(230, 182, 75, 0.42), 0 0 8px rgba(201, 162, 39, 0.15); }
-  50% { box-shadow: 0 0 0 1px rgba(230, 182, 75, 0.6), 0 0 20px rgba(201, 162, 39, 0.3); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(230, 182, 75, 0.42),
+      0 0 8px rgba(201, 162, 39, 0.15);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(230, 182, 75, 0.6),
+      0 0 20px rgba(201, 162, 39, 0.3);
+  }
 }
 
 .dialogue-head {
@@ -250,40 +646,122 @@ body {
 }
 
 .dialogue-name {
-  font-weight: 800;
-  font-size: 14px;
+  font-family: "Cinzel", "Georgia", serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--leather);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.controls-dock {
+.dialogue-text {
+  font-family: "Nunito", sans-serif;
+  font-style: italic;
+  color: var(--story-ink-soft);
+}
+
+/* Stone buttons inside parchment context */
+.book-page-left .stone-btn {
+  color: var(--story-ink);
+  background: radial-gradient(
+    circle at 30% 26%,
+    var(--parchment-dark),
+    #c4a882
+  );
+  border-color: rgba(139, 94, 60, 0.4);
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+/* ----------------------------------------------------------------
+   Glass Panel (for error screen fallback)
+   ---------------------------------------------------------------- */
+
+.glass-panel {
+  border-radius: 16px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass-solid);
+  color: var(--story-ink);
+  box-shadow: 0 14px 36px rgba(26, 16, 8, 0.32);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+  .glass-panel {
+    background: var(--glass-bg);
+    color: var(--warm-white);
+    backdrop-filter: blur(20px) saturate(1.3);
+    -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  }
+}
+
+/* ----------------------------------------------------------------
+   Leather Control Bar
+   ---------------------------------------------------------------- */
+
+.leather-bar {
   position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 20px;
   z-index: 4;
-  display: grid;
-  gap: 10px;
+  width: min(92%, 700px);
+  background: linear-gradient(
+    180deg,
+    #6b4a32,
+    #4a3020,
+    var(--leather-dark)
+  );
+  border-radius: 32px;
+  border: 1px solid rgba(139, 94, 60, 0.5);
+  box-shadow:
+    0 4px 16px rgba(26, 16, 8, 0.4),
+    inset 0 1px 1px rgba(255, 200, 140, 0.1);
+  padding: 10px 20px;
 }
 
-.dock-row {
+.leather-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 32px;
+  filter: url(#wood-grain);
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+.leather-bar-inner {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
 }
+
+/* ----------------------------------------------------------------
+   Stone Buttons
+   ---------------------------------------------------------------- */
 
 .stone-btn {
   border: 1px solid rgba(240, 223, 184, 0.45);
   color: var(--warm-white);
-  background: radial-gradient(circle at 30% 26%, var(--stone-light), var(--stone-dark));
+  background: radial-gradient(
+    circle at 30% 26%,
+    var(--stone-light),
+    var(--stone-dark)
+  );
   border-radius: 999px;
   padding: 8px 14px;
   font: inherit;
   font-weight: 800;
   cursor: pointer;
-  transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3), inset 0 1px 2px rgba(255, 255, 255, 0.16);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease;
+  box-shadow:
+    0 8px 18px rgba(26, 16, 8, 0.3),
+    inset 0 1px 2px rgba(255, 255, 255, 0.16);
 }
 
 .stone-btn:active {
@@ -293,7 +771,7 @@ body {
 .stone-btn[data-emphasis="true"] {
   box-shadow:
     0 0 0 2px rgba(215, 171, 72, 0.5),
-    0 10px 22px rgba(0, 0, 0, 0.34),
+    0 10px 22px rgba(26, 16, 8, 0.34),
     inset 0 1px 2px rgba(255, 255, 255, 0.2);
 }
 
@@ -302,55 +780,199 @@ body {
   opacity: 0.48;
 }
 
-.page-dots {
+.stone-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Circular stone buttons (prev/next) */
+
+.stone-btn-round {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* Large play button (centerpiece) */
+
+.stone-btn-play {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  box-shadow:
+    0 0 0 3px rgba(201, 162, 39, 0.35),
+    0 8px 20px rgba(26, 16, 8, 0.4),
+    inset 0 1px 2px rgba(255, 255, 255, 0.16);
+}
+
+.stone-btn-play .stone-icon {
+  display: grid;
+  place-items: center;
+}
+
+.stone-btn-play.is-playing {
+  box-shadow:
+    0 0 0 3px rgba(201, 162, 39, 0.5),
+    0 0 20px rgba(201, 162, 39, 0.3),
+    0 8px 20px rgba(26, 16, 8, 0.4),
+    inset 0 1px 2px rgba(255, 255, 255, 0.16);
+  animation: glow-pulse 1.5s ease-in-out infinite;
+}
+
+/* ----------------------------------------------------------------
+   Candle-Flame Page Indicators
+   ---------------------------------------------------------------- */
+
+.candle-dots {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 4px 8px;
+  overflow-x: auto;
+  max-width: 300px;
+  scrollbar-width: none;
 }
 
-.page-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(234, 216, 184, 0.52);
-  background: radial-gradient(circle at 28% 28%, #a99679, #4e4236);
+.candle-dots::-webkit-scrollbar {
+  display: none;
+}
+
+.candle-dot {
+  width: 8px;
+  height: 22px;
+  position: relative;
   cursor: pointer;
+  background: linear-gradient(180deg, var(--stone-light), var(--stone));
+  border-radius: 2px;
+  border: none;
+  padding: 0;
+  flex-shrink: 0;
 }
 
-.page-dot.active {
-  box-shadow: 0 0 0 2px rgba(221, 176, 80, 0.48);
-  background: radial-gradient(circle at 28% 28%, #ebc87d, #b8852a);
+/* The flame */
+.candle-dot::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 10px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: radial-gradient(
+    ellipse at center 60%,
+    rgba(255, 230, 140, 0.9),
+    rgba(255, 180, 60, 0.7) 50%,
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+/* Active candle — lit flame */
+.candle-dot.active::before {
+  opacity: 1;
+  animation: flame-flicker 1.2s ease-in-out infinite alternate;
+}
+
+/* Visited (past) candles — faint ember */
+.candle-dot.visited::before {
+  opacity: 0.4;
+}
+
+@keyframes flame-flicker {
+  0% {
+    transform: translateX(-50%) scaleY(1) scaleX(1);
+  }
+  25% {
+    transform: translateX(-48%) scaleY(1.1) scaleX(0.9);
+  }
+  50% {
+    transform: translateX(-52%) scaleY(0.95) scaleX(1.05);
+  }
+  75% {
+    transform: translateX(-50%) scaleY(1.08) scaleX(0.95);
+  }
+  100% {
+    transform: translateX(-50%) scaleY(1) scaleX(1);
+  }
 }
 
 .status-row {
   font-size: 13px;
   opacity: 0.88;
+  color: var(--warm-white);
+}
+
+/* ----------------------------------------------------------------
+   Sidebar Overlay
+   ---------------------------------------------------------------- */
+
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.sidebar-overlay[hidden] {
+  display: none;
+}
+
+.sidebar-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 6, 4, 0.5);
+  cursor: pointer;
+}
+
+.sidebar-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 90vw;
 }
 
 .sidebar {
-  border-left: 1px solid rgba(255, 255, 255, 0.16);
-  background: linear-gradient(180deg, rgba(7, 15, 27, 0.86), rgba(6, 10, 18, 0.96));
+  border-left: 1px solid rgba(196, 168, 130, 0.3);
+  background: linear-gradient(
+    180deg,
+    rgba(18, 16, 10, 0.95),
+    rgba(8, 6, 4, 0.98)
+  );
   padding: 14px;
   display: grid;
   gap: 12px;
   align-content: start;
   overflow: auto;
+  height: 100%;
 }
 
 .sidebar-card {
   border-radius: 14px;
-  border: 1px solid rgba(241, 226, 195, 0.22);
-  background: rgba(18, 30, 45, 0.66);
+  border: 1px solid rgba(196, 168, 130, 0.22);
+  background: rgba(30, 24, 16, 0.66);
   padding: 14px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 12px rgba(26, 16, 8, 0.2);
 }
 
 @supports (backdrop-filter: blur(1px)) {
   .sidebar-card {
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    background: rgba(18, 30, 45, 0.5);
+    background: rgba(30, 24, 16, 0.5);
   }
 }
 
@@ -375,16 +997,26 @@ body {
 .text-input {
   width: 100%;
   border-radius: 10px;
-  border: 1px solid rgba(240, 223, 184, 0.35);
-  background: rgba(7, 14, 24, 0.72);
+  border: 1px solid rgba(196, 168, 130, 0.35);
+  background: rgba(18, 14, 8, 0.72);
   color: var(--warm-white);
   padding: 8px 10px;
   font: inherit;
 }
 
 .text-input::placeholder {
-  color: rgba(233, 242, 255, 0.62);
+  color: rgba(196, 168, 130, 0.62);
 }
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(201, 162, 39, 0.2);
+}
+
+/* ----------------------------------------------------------------
+   Presence / Collaboration
+   ---------------------------------------------------------------- */
 
 .presence-list {
   display: grid;
@@ -392,11 +1024,45 @@ body {
 }
 
 .presence-item {
-  border-radius: 9px;
-  border: 1px solid rgba(164, 193, 235, 0.35);
-  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  border: 1px solid rgba(196, 168, 130, 0.2);
+  padding: 6px 8px;
+  font-size: 13px;
+  background: rgba(247, 240, 227, 0.06);
+}
+
+.presence-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.presence-name {
+  font-weight: 700;
   font-size: 13px;
 }
+
+.presence-detail {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+.presence-chip {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ----------------------------------------------------------------
+   Info / Status Labels
+   ---------------------------------------------------------------- */
 
 .info {
   color: rgba(231, 241, 255, 0.9);
@@ -415,6 +1081,10 @@ body {
   color: var(--ok);
 }
 
+/* ----------------------------------------------------------------
+   Error Screen
+   ---------------------------------------------------------------- */
+
 .screen-error {
   position: absolute;
   inset: 0;
@@ -422,7 +1092,7 @@ body {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(4, 8, 14, 0.76);
+  background: rgba(8, 6, 4, 0.76);
 }
 
 .screen-error-card {
@@ -430,55 +1100,112 @@ body {
   padding: 20px;
 }
 
+/* ----------------------------------------------------------------
+   Settings Toggle Button (in leather bar)
+   ---------------------------------------------------------------- */
+
+.settings-toggle {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+}
+
+/* ----------------------------------------------------------------
+   Responsive: Tablet (<=1140px)
+   ---------------------------------------------------------------- */
+
 @media (max-width: 1140px) {
-  .reader-shell {
-    grid-template-columns: minmax(0, 1fr);
+  .open-book {
+    grid-template-columns: 1fr;
+    margin: 60px auto 40px;
   }
 
-  .sidebar {
-    border-left: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.16);
+  .book-spine {
+    display: none;
+  }
+
+  .book-page-left {
+    border-radius: 8px 8px 0 0;
+    max-height: none;
+    box-shadow: none;
+  }
+
+  .book-page-left::before {
+    border-radius: 8px 8px 0 0;
+  }
+
+  .book-page-right {
+    border-radius: 0 0 8px 8px;
+    min-height: 300px;
+  }
+
+  .book-page-right::before {
+    border-radius: 0 0 8px 8px;
+  }
+
+  .book-page-right::after {
+    border-radius: 0 0 8px 0;
+  }
+
+  .scene-bg {
+    border-radius: 0 0 8px 8px;
+  }
+
+  .scene-vignette {
+    border-radius: 0 0 8px 8px;
   }
 }
 
+/* ----------------------------------------------------------------
+   Responsive: Mobile (<=760px)
+   ---------------------------------------------------------------- */
+
 @media (max-width: 760px) {
-  .scene-layer {
-    padding: 66px 10px 220px;
+  .open-book {
+    width: min(98%, 1400px);
+    margin: 56px auto 32px;
   }
 
-  .scene-card {
-    max-height: calc(100vh - 360px);
-  }
-
-  .scene-card img {
-    max-height: calc(100vh - 360px);
-  }
-
-  .text-deck {
-    margin-top: -112px;
-    width: min(96%, 920px);
-    padding: 12px 13px;
+  .book-page-left {
+    padding: 20px 16px 28px;
   }
 
   .narration {
-    font-size: clamp(16px, 5vw, 20px);
+    font-size: clamp(15px, 4.5vw, 18px);
   }
 
-  .top-hud {
+  .scroll-ribbon {
+    top: 8px;
     gap: 8px;
-    left: 10px;
-    right: 10px;
   }
 
-  .controls-dock {
-    left: 10px;
-    right: 10px;
+  .ribbon-body {
+    padding: 6px 16px;
+  }
+
+  .ribbon-body .story-title {
+    font-size: clamp(14px, 3.5vw, 18px);
+  }
+
+  .leather-bar {
     bottom: 10px;
+    padding: 8px 14px;
   }
 
-  .dock-row {
-    padding: 8px;
-    gap: 6px;
+  .leather-bar-inner {
+    gap: 8px;
+  }
+
+  .stone-btn-round {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+
+  .stone-btn-play {
+    width: 48px;
+    height: 48px;
+    font-size: 18px;
   }
 
   .stone-btn {
@@ -486,15 +1213,48 @@ body {
     font-size: 13px;
   }
 
-  .story-meta {
-    font-size: 12px;
+  .page-number {
+    font-size: 11px;
+    bottom: 8px;
+  }
+
+  .page-number-left {
+    left: 16px;
+  }
+
+  .page-number-right {
+    right: 16px;
+  }
+
+  .candle-dots {
+    max-width: 180px;
+    gap: 8px;
   }
 }
 
-/* Accessibility: reduced motion */
+/* ----------------------------------------------------------------
+   Accessibility: Reduced Motion
+   ---------------------------------------------------------------- */
+
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .cottage-fairy-lights,
+  .cottage-firelight {
+    animation: none;
+  }
+
+  .sparkle-field {
+    display: none;
+  }
+
+  .book-page-left,
+  .book-page-right {
+    transition: none;
   }
 }

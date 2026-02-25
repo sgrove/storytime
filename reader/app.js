@@ -19,6 +19,7 @@ const SEGMENT_GAP_DEFAULT_MS = 100;
 
 const dom = {
   stage: document.getElementById('stage'),
+  openBook: document.getElementById('openBook'),
   sceneBg: document.getElementById('sceneBg'),
   sceneBox: document.getElementById('sceneBox'),
   cursorLayer: document.getElementById('cursorLayer'),
@@ -26,6 +27,8 @@ const dom = {
   meta: document.getElementById('storyMeta'),
   modeLabel: document.getElementById('modeLabel'),
   pageLabel: document.getElementById('pageLabel'),
+  pageNumLeft: document.getElementById('pageNumLeft'),
+  pageNumRight: document.getElementById('pageNumRight'),
   playbackLabel: document.getElementById('playbackLabel'),
   timingLabel: document.getElementById('timingLabel'),
   runtimeErrorLabel: document.getElementById('runtimeErrorLabel'),
@@ -35,6 +38,7 @@ const dom = {
   collabPill: document.getElementById('collabPill'),
   collabStatus: document.getElementById('collabStatus'),
   presenceList: document.getElementById('presenceList'),
+  sidebarOverlay: document.getElementById('sidebarOverlay'),
   packConfigCard: document.getElementById('packConfigCard'),
   packUrlInput: document.getElementById('packUrlInput'),
   packConfigStatus: document.getElementById('packConfigStatus'),
@@ -502,8 +506,12 @@ function renderDots() {
 
   dom.pageDots.innerHTML = Array.from({ length: count })
     .map((_, index) => {
-      const active = index === state.nav.pageIndex;
-      return `<button class="page-dot${active ? ' active' : ''}" data-action="seek-page" data-page-index="${index}" aria-label="Go to page ${index + 1}"></button>`;
+      const isActive = index === state.nav.pageIndex;
+      const isVisited = index < state.nav.pageIndex;
+      const classes = ['candle-dot'];
+      if (isActive) classes.push('active');
+      if (isVisited) classes.push('visited');
+      return `<button class="${classes.join(' ')}" data-action="seek-page" data-page-index="${index}" aria-label="Go to page ${index + 1}"></button>`;
     })
     .join('');
 }
@@ -549,12 +557,18 @@ function renderCollaboration() {
   dom.collabStatus.textContent =
     `You: ${state.collab.identity.name} | role: ${state.collab.isHost ? 'host' : 'guest'} | follow: ${state.collab.followHost ? 'on' : 'off'} | host: ${host ? host.name : (state.collab.isHost ? state.collab.identity.name : 'none')} | backend: ${state.collab.backend}`;
 
+  const presenceColors = ['#c9a227', '#8b3d3a', '#2c4a6e', '#3d6b4f', '#6b4a8a'];
   dom.presenceList.innerHTML = peers.length
     ? peers
-        .map((peer) => {
+        .map((peer, i) => {
+          const color = presenceColors[i % presenceColors.length];
           const staleSeconds = Math.max(0, Math.floor((Date.now() - (peer.seenAt || Date.now())) / 1000));
-          const freshness = staleSeconds <= 2 ? 'active now' : `${staleSeconds}s ago`;
-          return `<div class="presence-item">${escapeHtml(peer.name)} • page ${peer.pageIndex + 1}${peer.host ? ' • host' : ''} • ${freshness}</div>`;
+          const freshness = staleSeconds <= 2 ? 'here now' : `${staleSeconds}s ago`;
+          return `<div class="presence-item">
+            <span class="presence-dot" style="background:${color}"></span>
+            <span class="presence-name">${escapeHtml(peer.name)}</span>
+            <span class="presence-detail">page ${peer.pageIndex + 1}${peer.host ? ' &bull; host' : ''} &bull; ${freshness}</span>
+          </div>`;
         })
         .join('')
     : '<div class="info">No collaborators yet.</div>';
@@ -588,12 +602,23 @@ function renderMeta() {
   }
 
   const pack = state.story.pack;
-  const modeLabel = state.mode.tag === 'narrate' ? 'Narrate' : 'Read Alone';
+  const isNarrating = state.mode.tag === 'narrate';
 
   dom.title.textContent = text(pack.title || 'Storytime Reader');
-  dom.meta.textContent = `${text(pack.slug || '')} • ${modeLabel}`;
-  dom.modeLabel.textContent = modeLabel;
+
+  const currentSpeaker = state.audio.tag === 'playing' && state.audio.active?.speaker ? state.audio.active.speaker : '';
+  const speakerInfo = currentSpeaker ? ` | Speaking: ${currentSpeaker}` : '';
+  dom.meta.textContent = `Page ${state.nav.pageIndex + 1} of ${pack.pages.length}${speakerInfo}`;
+
+  const modeLabelIcon = dom.modeLabel.querySelector('.stone-icon');
+  if (modeLabelIcon) {
+    modeLabelIcon.innerHTML = isNarrating ? '&#9646;&#9646;' : '&#9654;';
+  }
+  dom.modeLabel.classList.toggle('is-playing', state.audio.tag === 'playing');
   dom.pageLabel.textContent = `Page ${state.nav.pageIndex + 1} / ${pack.pages.length}`;
+
+  if (dom.pageNumLeft) dom.pageNumLeft.textContent = String((state.nav.pageIndex * 2) + 1);
+  if (dom.pageNumRight) dom.pageNumRight.textContent = String((state.nav.pageIndex * 2) + 2);
 
   const audioMessage = (() => {
     if (state.audio.tag === 'loading') return 'Voice: loading...';
@@ -663,6 +688,42 @@ function setPageIndex(nextIndex, options) {
     return;
   }
 
+  const direction = target > state.nav.pageIndex ? 'forward' : 'backward';
+  const book = dom.openBook;
+
+  // Animate page turn for manual navigation
+  if (book && options.reason === 'manual') {
+    book.classList.add(`page-turning-${direction}`);
+
+    setTimeout(() => {
+      state.nav = {
+        tag: 'transitioning',
+        pageIndex: target
+      };
+
+      stopVoice({ clearWarning: false });
+      renderAll();
+
+      book.classList.remove(`page-turning-${direction}`);
+
+      queueMicrotask(() => {
+        state.nav = { tag: 'idle', pageIndex: target };
+        renderMeta();
+      });
+
+      publishPresence();
+      publishPageSync();
+      updateMusicForPage();
+
+      if (state.mode.tag === 'narrate') {
+        void playNarrateSequenceForCurrentPage({ autoAdvance: true });
+      }
+    }, 300);
+
+    return;
+  }
+
+  // Non-animated transition (sync, auto, seek)
   state.nav = {
     tag: options.reason === 'seek' ? 'seeking' : 'transitioning',
     pageIndex: target
@@ -1561,6 +1622,13 @@ function initUiEvents() {
     if (!button) return;
 
     const action = button.dataset.action;
+
+    if (action === 'toggle-sidebar') {
+      if (dom.sidebarOverlay) {
+        dom.sidebarOverlay.hidden = !dom.sidebarOverlay.hidden;
+      }
+      return;
+    }
 
     if (action === 'apply-pack-url') {
       if (state.runtime.tag !== 'ready' || !state.runtime.config.allowPackOverride) return;

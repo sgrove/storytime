@@ -7,42 +7,71 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Nunito:wght@400;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Merriweather:wght@400;700&family=Nunito:wght@400;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="reader-shell">
+      <!-- Cottage environment layers (Phase 2) -->
+      <div class="cottage-env">
+        <div class="cottage-curtains"></div>
+        <div class="cottage-fairy-lights"></div>
+        <div class="cottage-firelight"></div>
+        <div class="sparkle-field">
+          <div class="sparkle s1"></div>
+          <div class="sparkle s2"></div>
+          <div class="sparkle s3"></div>
+          <div class="sparkle s4"></div>
+          <div class="sparkle s5"></div>
+          <div class="sparkle s6"></div>
+          <div class="sparkle s7"></div>
+          <div class="sparkle s8"></div>
+        </div>
+      </div>
+
       <main class="stage" id="stage">
-        <header class="top-hud">
-          <div class="glass-panel top-hud-card">
+        <!-- Parchment scroll ribbon (Phase 4) -->
+        <header class="top-hud scroll-ribbon">
+          <div class="ribbon-body">
             <h1 class="story-title" id="storyTitle">Storytime Reader</h1>
-            <div class="story-meta" id="storyMeta">Loading story...</div>
+            <div class="ribbon-meta" id="storyMeta">Loading story...</div>
           </div>
-          <div class="glass-panel presence-chip" id="collabPill">Readers: 1</div>
+          <div class="presence-chip" id="collabPill">Readers: 1</div>
         </header>
 
-        <section class="scene-layer">
-          <div class="scene-bg" id="sceneBg"></div>
-          <div class="scene-vignette"></div>
-          <div class="scene-card" id="sceneBox"></div>
-          <div class="cursor-layer" id="cursorLayer"></div>
-        </section>
+        <!-- Open book layout (Phase 1) -->
+        <div class="open-book" id="openBook">
+          <section class="book-page book-page-left text-deck">
+            <div class="page-number page-number-left" id="pageNumLeft"></div>
+            <div class="narration" id="narration"></div>
+            <div class="dialogue-list" id="dialogueList"></div>
+          </section>
 
-        <section class="glass-panel text-deck">
-          <div class="narration" id="narration"></div>
-          <div class="dialogue-list" id="dialogueList"></div>
-        </section>
+          <div class="book-spine"></div>
 
-        <section class="controls-dock">
-          <div class="glass-panel dock-row">
-            <button class="stone-btn" data-action="prev-page">Prev</button>
-            <button class="stone-btn" data-action="toggle-mode" data-emphasis="true" id="modeLabel">Read Alone</button>
-            <button class="stone-btn" data-action="next-page">Next</button>
+          <section class="book-page book-page-right scene-layer">
+            <div class="scene-bg" id="sceneBg"></div>
+            <div class="scene-vignette"></div>
+            <div class="scene-card" id="sceneBox"></div>
+            <div class="cursor-layer" id="cursorLayer"></div>
+            <div class="page-number page-number-right" id="pageNumRight"></div>
+          </section>
+        </div>
+
+        <!-- Leather control bar (Phase 3) -->
+        <section class="controls-dock leather-bar">
+          <div class="leather-bar-inner">
+            <button class="stone-btn stone-btn-round" data-action="prev-page" aria-label="Previous page">&#8249;</button>
+            <div class="candle-dots" id="pageDots"></div>
+            <button class="stone-btn stone-btn-play" data-action="toggle-mode" data-emphasis="true" id="modeLabel" aria-label="Play/Pause">
+              <span class="stone-icon">&#9654;</span>
+            </button>
             <div class="status-row" id="pageLabel">Page 0 / 0</div>
+            <button class="stone-btn stone-btn-round" data-action="next-page" aria-label="Next page">&#8250;</button>
+            <button class="stone-btn stone-btn-round settings-toggle" data-action="toggle-sidebar" aria-label="Settings">&#9881;</button>
           </div>
-          <div class="glass-panel dock-row page-dots" id="pageDots"></div>
         </section>
 
         <section class="screen-error" id="errorScreen" hidden>
@@ -53,62 +82,82 @@
         </section>
       </main>
 
-      <aside class="sidebar">
-        <section class="sidebar-card">
-          <h2>Playback</h2>
-          <div class="row">
-            <button class="stone-btn" data-action="play-narration">Narration</button>
-            <button class="stone-btn" data-action="play-page-dialogue">Dialogue</button>
-            <button class="stone-btn" data-action="play-narration-dialogue">Narrate Page</button>
-          </div>
-          <div class="row">
-            <button class="stone-btn" data-action="pause-voice">Pause</button>
-            <button class="stone-btn" data-action="resume-voice">Resume</button>
-            <button class="stone-btn" data-action="stop-voice">Stop</button>
-          </div>
-          <div class="info" id="playbackLabel">Voice: idle</div>
-          <div class="info" id="timingLabel">Timing: ready</div>
-        </section>
+      <!-- Sidebar overlay (Phase 5) -->
+      <div class="sidebar-overlay" id="sidebarOverlay" hidden>
+        <div class="sidebar-overlay-backdrop" data-action="toggle-sidebar"></div>
+        <aside class="sidebar sidebar-panel">
+          <section class="sidebar-card">
+            <h2>Playback</h2>
+            <div class="row">
+              <button class="stone-btn" data-action="play-narration">Narration</button>
+              <button class="stone-btn" data-action="play-page-dialogue">Dialogue</button>
+              <button class="stone-btn" data-action="play-narration-dialogue">Narrate Page</button>
+            </div>
+            <div class="row">
+              <button class="stone-btn" data-action="pause-voice">Pause</button>
+              <button class="stone-btn" data-action="resume-voice">Resume</button>
+              <button class="stone-btn" data-action="stop-voice">Stop</button>
+            </div>
+            <div class="info" id="playbackLabel">Voice: idle</div>
+            <div class="info" id="timingLabel">Timing: ready</div>
+          </section>
 
-        <section class="sidebar-card">
-          <h2>Mix</h2>
-          <label class="info" for="voiceVolume">Voice Volume</label>
-          <input class="slider" id="voiceVolume" type="range" min="0" max="1" step="0.01" value="0.9" />
-          <label class="info" for="musicVolume">Music Volume</label>
-          <input class="slider" id="musicVolume" type="range" min="0" max="1" step="0.01" value="0.35" />
-        </section>
+          <section class="sidebar-card">
+            <h2>Mix</h2>
+            <label class="info" for="voiceVolume">Voice Volume</label>
+            <input class="slider" id="voiceVolume" type="range" min="0" max="1" step="0.01" value="0.9" />
+            <label class="info" for="musicVolume">Music Volume</label>
+            <input class="slider" id="musicVolume" type="range" min="0" max="1" step="0.01" value="0.35" />
+          </section>
 
-        <section class="sidebar-card">
-          <h2>Collaboration</h2>
-          <div class="row">
-            <button class="stone-btn" data-action="toggle-host">Toggle Host</button>
-            <button class="stone-btn" data-action="toggle-follow">Toggle Follow</button>
-          </div>
-          <div class="info" id="collabStatus"></div>
-          <div class="presence-list" id="presenceList"></div>
-        </section>
+          <section class="sidebar-card">
+            <h2>Collaboration</h2>
+            <div class="row">
+              <button class="stone-btn" data-action="toggle-host">Toggle Host</button>
+              <button class="stone-btn" data-action="toggle-follow">Toggle Follow</button>
+            </div>
+            <div class="info" id="collabStatus"></div>
+            <div class="presence-list" id="presenceList"></div>
+          </section>
 
-        <section class="sidebar-card" id="packConfigCard" hidden>
-          <h2>Story Source</h2>
-          <div class="info">Paste StoryPack URL, then load.</div>
-          <input class="text-input" id="packUrlInput" type="text" placeholder="https://.../api/stories/<id>/pack" />
-          <div class="row">
-            <button class="stone-btn" data-action="apply-pack-url">Load Pack URL</button>
-            <button class="stone-btn" data-action="clear-pack-url">Clear URL</button>
-          </div>
-          <div class="info" id="packConfigStatus"></div>
-        </section>
+          <section class="sidebar-card" id="packConfigCard" hidden>
+            <h2>Story Source</h2>
+            <div class="info">Paste StoryPack URL, then load.</div>
+            <input class="text-input" id="packUrlInput" type="text" placeholder="https://.../api/stories/<id>/pack" />
+            <div class="row">
+              <button class="stone-btn" data-action="apply-pack-url">Load Pack URL</button>
+              <button class="stone-btn" data-action="clear-pack-url">Clear URL</button>
+            </div>
+            <div class="info" id="packConfigStatus"></div>
+          </section>
 
-        <section class="sidebar-card">
-          <h2>Runtime</h2>
-          <div class="info" id="runtimeErrorLabel"></div>
-        </section>
-      </aside>
+          <section class="sidebar-card">
+            <h2>Runtime</h2>
+            <div class="info" id="runtimeErrorLabel"></div>
+          </section>
+        </aside>
+      </div>
     </div>
 
     <audio id="voiceAudio" preload="metadata"></audio>
     <audio id="musicA" preload="metadata" loop></audio>
     <audio id="musicB" preload="metadata" loop></audio>
+
+    <!-- SVG filters for textures -->
+    <svg width="0" height="0" style="position: absolute">
+      <defs>
+        <filter id="parchment-noise">
+          <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" />
+          <feColorMatrix type="saturate" values="0" />
+          <feBlend in="SourceGraphic" mode="soft-light" />
+        </filter>
+        <filter id="wood-grain">
+          <feTurbulence type="turbulence" baseFrequency="0.02 0.15" numOctaves="3" />
+          <feColorMatrix type="saturate" values="0.3" />
+          <feBlend in="SourceGraphic" mode="overlay" />
+        </filter>
+      </defs>
+    </svg>
 
     <script src="https://unpkg.com/@instantdb/core@0.22.143/dist/standalone/index.umd.cjs"></script>
     <script type="module" src="./app.js"></script>
