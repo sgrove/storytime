@@ -336,6 +336,7 @@
             <button class="btn flat" data-action="queue-filter" data-filter="active">Active</button>
             <button class="btn flat" data-action="queue-filter" data-filter="failed">Failed</button>
             <button class="btn flat" data-action="queue-latest" id="queueLatestToggle">Latest per target</button>
+            <button class="btn flat" data-action="retry-visible-failed" id="retryVisibleFailed">Retry Failed Visible</button>
             <input id="queueSearch" placeholder="Filter text (job type / speaker / target)" style="max-width:280px;" />
             <button class="btn flat" data-action="clear-events">Clear Events</button>
           </div>
@@ -676,6 +677,33 @@
         }
 
         return latest;
+      }
+
+      function scopedQueueJobs() {
+        const jobs = state.jobs || [];
+        return state.queueLatestOnly ? latestJobsPerTarget(jobs) : jobs;
+      }
+
+      function filteredQueueJobs() {
+        const search = (state.queueSearch || "").trim().toLowerCase();
+
+        return scopedQueueJobs().filter((job) => {
+          if (state.queueFilter === "active" && !isActiveStatus(job.status)) return false;
+          if (state.queueFilter === "failed" && job.status !== "failed") return false;
+          if (!search) return true;
+
+          const haystack = [
+            job.job_type,
+            job.status,
+            job.target_label,
+            job.target_id,
+            job.character_name,
+            job.text_preview,
+            job.error
+          ].filter(Boolean).join(" ").toLowerCase();
+
+          return haystack.includes(search);
+        });
       }
 
       function hasActiveDialogueJobForPage(page) {
@@ -1023,6 +1051,10 @@
                         <div class="field"><label>Start Page</label><input id="span-start-${s.id}" type="number" value="${s.start_page_index}" /></div>
                         <div class="field"><label>End Page</label><input id="span-end-${s.id}" type="number" value="${s.end_page_index}" /></div>
                       </div>
+                      <div class="field">
+                        <label>Loop</label>
+                        <input id="span-loop-${s.id}" type="checkbox" ${s.loop !== false ? "checked" : ""} style="width:auto;justify-self:start;" />
+                      </div>
                       <div class="actions">
                         <button class="btn" data-action="save-span" data-id="${s.id}">Save Span</button>
                         <button class="btn warn" data-action="delete-span" data-id="${s.id}">Delete Span</button>
@@ -1033,6 +1065,10 @@
                     <div class="row">
                       <div class="field"><label>Start</label><input id="new-span-start-${t.id}" type="number" value="0" /></div>
                       <div class="field"><label>End</label><input id="new-span-end-${t.id}" type="number" value="1" /></div>
+                    </div>
+                    <div class="field">
+                      <label>Loop</label>
+                      <input id="new-span-loop-${t.id}" type="checkbox" checked style="width:auto;justify-self:start;" />
                     </div>
                     <button class="btn" data-action="add-span" data-track-id="${t.id}">Add Span</button>
                   </div>
@@ -1094,6 +1130,8 @@
         if (!state.currentStory) {
           root.innerHTML = '<div class="hint">Pick a story first.</div>';
           summary.textContent = "";
+          const retryVisibleFailed = $("retryVisibleFailed");
+          if (retryVisibleFailed) retryVisibleFailed.disabled = true;
           renderEventFeed();
           return;
         }
@@ -1101,11 +1139,13 @@
         if (!state.jobs.length) {
           root.innerHTML = '<div class="hint">No jobs yet.</div>';
           summary.textContent = "No jobs tracked yet.";
+          const retryVisibleFailed = $("retryVisibleFailed");
+          if (retryVisibleFailed) retryVisibleFailed.disabled = true;
           renderEventFeed();
           return;
         }
 
-        const scopedJobs = state.queueLatestOnly ? latestJobsPerTarget(state.jobs) : state.jobs;
+        const scopedJobs = scopedQueueJobs();
         const hiddenHistoryCount = Math.max(0, state.jobs.length - scopedJobs.length);
 
         const counts = { pending: 0, running: 0, completed: 0, failed: 0 };
@@ -1131,24 +1171,15 @@
             state.queueLatestOnly ? "Latest per target: ON" : "Latest per target: OFF";
         }
 
-        const search = (state.queueSearch || "").trim().toLowerCase();
-        const filteredJobs = scopedJobs.filter((job) => {
-          if (state.queueFilter === "active" && !isActiveStatus(job.status)) return false;
-          if (state.queueFilter === "failed" && job.status !== "failed") return false;
-          if (!search) return true;
+        const filteredJobs = filteredQueueJobs();
 
-          const haystack = [
-            job.job_type,
-            job.status,
-            job.target_label,
-            job.target_id,
-            job.character_name,
-            job.text_preview,
-            job.error
-          ].filter(Boolean).join(" ").toLowerCase();
-
-          return haystack.includes(search);
-        });
+        const retryVisibleFailed = $("retryVisibleFailed");
+        if (retryVisibleFailed) {
+          const retryableFailedCount = filteredJobs.filter((job) => job.status === "failed" && job.job_type !== "deploy").length;
+          retryVisibleFailed.disabled = retryableFailedCount === 0;
+          retryVisibleFailed.textContent =
+            retryableFailedCount > 0 ? `Retry Failed Visible (${retryableFailedCount})` : "Retry Failed Visible";
+        }
 
         if (!filteredJobs.length) {
           root.innerHTML = '<div class="hint">No jobs match the current filter.</div>';
@@ -1425,7 +1456,7 @@
               track_id: trackId,
               start_page_index: Number($(`new-span-start-${trackId}`).value),
               end_page_index: Number($(`new-span-end-${trackId}`).value),
-              loop: true
+              loop: !!$(`new-span-loop-${trackId}`).checked
             });
           }
 
@@ -1435,7 +1466,7 @@
               id,
               start_page_index: Number($(`span-start-${id}`).value),
               end_page_index: Number($(`span-end-${id}`).value),
-              loop: true
+              loop: !!$(`span-loop-${id}`).checked
             });
           }
 
@@ -1455,6 +1486,23 @@
             refreshAfterAction = false;
             state.queueLatestOnly = !state.queueLatestOnly;
             renderJobs();
+          }
+          if (action === "retry-visible-failed") {
+            refreshAfterAction = false;
+            const retryable = filteredQueueJobs().filter(
+              (job) => job.status === "failed" && job.job_type !== "deploy"
+            );
+
+            if (!retryable.length) {
+              setStatus("No visible failed generation jobs to retry.", true);
+            } else {
+              for (const job of retryable) {
+                await push("retry_generation", { job_id: job.id, source: "queue_retry_bulk" });
+              }
+
+              await Promise.all([loadStoryFull(), loadJobs()]);
+              if (state.currentTab === "preview") await loadPreviewPack();
+            }
           }
           if (action === "clear-events") {
             refreshAfterAction = false;
