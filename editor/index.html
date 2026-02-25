@@ -221,6 +221,45 @@
         flex-wrap: wrap;
       }
 
+      .tag-input-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .tag-input-row input {
+        flex: 1 1 auto;
+      }
+
+      .tag-chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+
+      .tag-chip {
+        border: 1px solid #b28a45;
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: #ffe8b2;
+        color: #4b2e0d;
+        font-size: 12px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .tag-chip button {
+        border: none;
+        background: transparent;
+        color: #6a2a1c;
+        cursor: pointer;
+        font-weight: 700;
+        padding: 0;
+      }
+
       .queue-list {
         display: grid;
         gap: 8px;
@@ -376,7 +415,12 @@
         queueLatestOnly: true,
         characterVoicePreview: {},
         voiceOptions: [],
-        voiceLoadError: null
+        voiceLoadError: null,
+        musicTagOptions: [],
+        musicTagLookup: {},
+        musicTagLoadError: null,
+        musicDraftTags: {},
+        newTrackTags: []
       };
 
       const $ = (id) => document.getElementById(id);
@@ -442,6 +486,31 @@
         }
 
         if (state.currentTab === "cast") renderTabContent();
+      }
+
+      async function loadMusicTags() {
+        state.musicTagLoadError = null;
+
+        try {
+          const payload = await api("/api/music-tags");
+          const tags = Array.isArray(payload.tags) ? payload.tags : [];
+          const lookup = {};
+
+          for (const rawTag of tags) {
+            const normalized = String(rawTag || "").trim();
+            if (!normalized) continue;
+            lookup[normalized.toLowerCase()] = normalized;
+          }
+
+          state.musicTagOptions = tags;
+          state.musicTagLookup = lookup;
+        } catch (err) {
+          state.musicTagOptions = [];
+          state.musicTagLookup = {};
+          state.musicTagLoadError = err.message || "failed_to_load_music_tags";
+        }
+
+        if (state.currentTab === "music") renderTabContent();
       }
 
       async function generateCharacterVoicePreview(characterId) {
@@ -516,6 +585,7 @@
         await connectChannel();
         await loadJobs();
         if (!state.voiceOptions.length) await loadVoices();
+        if (!state.musicTagOptions.length) await loadMusicTags();
       }
 
       async function loadStoryFull() {
@@ -627,6 +697,105 @@
 
       function currentTracks() {
         return (state.currentStory?.music_tracks || []);
+      }
+
+      function splitRawTags(raw) {
+        if (!raw) return [];
+
+        return String(raw)
+          .split(/[,\n;]/g)
+          .map((token) => token.trim())
+          .filter(Boolean);
+      }
+
+      function normalizeMusicTags(rawTags) {
+        const lookup = state.musicTagLookup || {};
+        const out = [];
+        const seen = new Set();
+
+        for (const rawTag of rawTags || []) {
+          const token = String(rawTag || "").trim();
+          if (!token) continue;
+          const canonical = lookup[token.toLowerCase()];
+          if (!canonical) continue;
+          const key = canonical.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(canonical);
+        }
+
+        return out;
+      }
+
+      function tagsForTrack(track) {
+        const fromTagsField = Array.isArray(track?.tags) ? track.tags : [];
+        const fromMood = splitRawTags(track?.mood);
+        const normalized = normalizeMusicTags([...fromTagsField, ...fromMood]);
+        return normalized;
+      }
+
+      function syncTrackTagDrafts(tracks) {
+        const existing = new Set((tracks || []).map((track) => track.id));
+
+        Object.keys(state.musicDraftTags || {}).forEach((trackId) => {
+          if (!existing.has(trackId)) delete state.musicDraftTags[trackId];
+        });
+
+        for (const track of tracks || []) {
+          if (!Array.isArray(state.musicDraftTags[track.id])) {
+            state.musicDraftTags[track.id] = tagsForTrack(track);
+          }
+        }
+      }
+
+      function musicTagsToMood(tags) {
+        return (tags || []).join(", ");
+      }
+
+      function addMusicTagToScope(scope, rawTag) {
+        const token = String(rawTag || "").trim();
+        if (!token) return;
+
+        const canonical = state.musicTagLookup[token.toLowerCase()];
+        if (!canonical) throw new Error("select_a_valid_music_tag");
+
+        if (scope === "new") {
+          state.newTrackTags = normalizeMusicTags([...(state.newTrackTags || []), canonical]);
+          const input = $("newTrackTagInput");
+          if (input) input.value = "";
+          return;
+        }
+
+        const trackId = scope.replace("track:", "");
+        const current = state.musicDraftTags[trackId] || [];
+        state.musicDraftTags[trackId] = normalizeMusicTags([...current, canonical]);
+        const input = $(`track-tag-input-${trackId}`);
+        if (input) input.value = "";
+      }
+
+      function removeMusicTagFromScope(scope, tag) {
+        const normalized = String(tag || "").trim().toLowerCase();
+        if (!normalized) return;
+
+        if (scope === "new") {
+          state.newTrackTags = (state.newTrackTags || []).filter((entry) => entry.toLowerCase() !== normalized);
+          return;
+        }
+
+        const trackId = scope.replace("track:", "");
+        const current = state.musicDraftTags[trackId] || [];
+        state.musicDraftTags[trackId] = current.filter((entry) => entry.toLowerCase() !== normalized);
+      }
+
+      function renderTagChips(tags, scope) {
+        if (!tags || !tags.length) return '<div class="hint">No tags selected.</div>';
+
+        return `<div class="tag-chips">${tags.map((tag) => `
+          <span class="tag-chip">
+            ${esc(tag)}
+            <button type="button" data-action="remove-track-tag" data-scope="${esc(scope)}" data-tag="${esc(tag)}" aria-label="Remove ${esc(tag)}">×</button>
+          </span>
+        `).join("")}</div>`;
       }
 
       function latestJob(jobType, targetId) {
@@ -1027,6 +1196,8 @@
       function renderMusicTab() {
         if (!state.currentStory) return '<div class="hint">Pick a story first.</div>';
         const tracks = currentTracks();
+        syncTrackTagDrafts(tracks);
+        const musicTagOptions = state.musicTagOptions || [];
 
         return `
           <div class="stack">
@@ -1034,18 +1205,34 @@
               <h3>Add Music Track</h3>
               <div class="row">
                 <div class="field"><label>Title</label><input id="newTrackTitle" placeholder="Moonlight Lullaby" /></div>
-                <div class="field"><label>Mood</label><input id="newTrackMood" placeholder="gentle" /></div>
+                <div class="field">
+                  <label>Tags (Sonauto v3)</label>
+                  <div class="tag-input-row">
+                    <input id="newTrackTagInput" list="musicTagOptions" placeholder="Type to search tags..." />
+                    <button class="btn flat" data-action="add-track-tag" data-scope="new">Add Tag</button>
+                  </div>
+                  ${renderTagChips(state.newTrackTags || [], "new")}
+                </div>
               </div>
+              ${state.musicTagLoadError ? `<div class="hint" style="color:#872d1a;margin-bottom:8px;">Failed loading tags: ${esc(state.musicTagLoadError)}</div>` : ""}
               <button class="btn ok" data-action="add-track">Add Track</button>
             </div>
             ${tracks.map((t) => {
               const musicActionLabel = t.audio_url ? "Regenerate Music" : "Generate Music";
+              const draftTags = Array.isArray(state.musicDraftTags[t.id]) ? state.musicDraftTags[t.id] : [];
               return `
               <div class="card">
                 <h3>${esc(t.title)}</h3>
                 <div class="row">
                   <div class="field"><label>Title</label><input id="track-title-${t.id}" value="${esc(t.title)}" /></div>
-                  <div class="field"><label>Mood</label><input id="track-mood-${t.id}" value="${esc(t.mood || "")}" /></div>
+                  <div class="field">
+                    <label>Tags (Sonauto v3)</label>
+                    <div class="tag-input-row">
+                      <input id="track-tag-input-${t.id}" list="musicTagOptions" placeholder="Type to search tags..." />
+                      <button class="btn flat" data-action="add-track-tag" data-scope="track:${t.id}">Add Tag</button>
+                    </div>
+                    ${renderTagChips(draftTags, `track:${t.id}`)}
+                  </div>
                 </div>
                 ${t.audio_url ? `<audio controls src="${esc(assetUrl(t.audio_url))}" style="width:100%;"></audio>` : ""}
                 <div class="actions">
@@ -1085,6 +1272,9 @@
               </div>
             `;
             }).join("")}
+            <datalist id="musicTagOptions">
+              ${musicTagOptions.map((tag) => `<option value="${esc(tag)}"></option>`).join("")}
+            </datalist>
           </div>
         `;
       }
@@ -1451,19 +1641,45 @@
           }
 
           if (action === "add-track") {
+            const tags = normalizeMusicTags(state.newTrackTags || []);
+            if (!tags.length) throw new Error("select_at_least_one_music_tag");
+
             await push("add_music_track", {
               title: $("newTrackTitle").value,
-              mood: $("newTrackMood").value
+              tags,
+              mood: musicTagsToMood(tags)
             });
+
+            state.newTrackTags = [];
+            const input = $("newTrackTagInput");
+            if (input) input.value = "";
           }
 
           if (action === "save-track") {
             const id = node.dataset.id;
+            const tags = normalizeMusicTags(state.musicDraftTags[id] || []);
+            if (!tags.length) throw new Error("select_at_least_one_music_tag");
+
             await push("update_music_track", {
               id,
               title: $(`track-title-${id}`).value,
-              mood: $(`track-mood-${id}`).value
+              tags,
+              mood: musicTagsToMood(tags)
             });
+          }
+
+          if (action === "add-track-tag") {
+            refreshAfterAction = false;
+            const scope = node.dataset.scope || "";
+            const inputId = scope === "new" ? "newTrackTagInput" : `track-tag-input-${scope.replace("track:", "")}`;
+            addMusicTagToScope(scope, $(inputId)?.value || "");
+            renderTabContent();
+          }
+
+          if (action === "remove-track-tag") {
+            refreshAfterAction = false;
+            removeMusicTagFromScope(node.dataset.scope || "", node.dataset.tag || "");
+            renderTabContent();
           }
 
           if (action === "delete-track") await push("delete_music_track", { id: node.dataset.id });
@@ -1573,6 +1789,30 @@
         renderJobs();
       });
 
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+
+        if (target.id === "newTrackTagInput") {
+          event.preventDefault();
+          try {
+            addMusicTagToScope("new", target.value || "");
+            renderTabContent();
+          } catch (_err) {}
+          return;
+        }
+
+        if (target.id.startsWith("track-tag-input-")) {
+          event.preventDefault();
+          const trackId = target.id.replace("track-tag-input-", "");
+          try {
+            addMusicTagToScope(`track:${trackId}`, target.value || "");
+            renderTabContent();
+          } catch (_err) {}
+        }
+      });
+
       (async function boot() {
         $("apiBase").value = state.apiBase;
         $("apiBase").addEventListener("change", () => {
@@ -1584,7 +1824,7 @@
         renderTabContent();
         renderJobs();
         renderGlobalActions();
-        await loadStories();
+        await Promise.all([loadStories(), loadMusicTags()]);
       })();
     </script>
   </body>

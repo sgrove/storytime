@@ -4,6 +4,7 @@ defmodule Storytime.StoryPack do
   """
 
   alias Storytime.Stories
+  alias Storytime.SonautoTags
 
   @spec build(String.t(), keyword()) :: {:ok, map()} | {:error, :not_found}
   def build(story_id, opts \\ []) do
@@ -103,6 +104,7 @@ defmodule Storytime.StoryPack do
             "id" => track.id,
             "title" => track.title,
             "mood" => track.mood,
+            "tags" => track.mood |> SonautoTags.normalize_tags(),
             "audioUrl" => absolute_url(track.audio_url, base_url)
           }
         end),

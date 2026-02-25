@@ -116,7 +116,8 @@ defmodule Storytime.Stories do
         Repo.all(
           from(j in GenerationJob,
             where:
-              j.story_id == ^story_id and j.status in ^options.statuses and j.updated_at <= ^cutoff,
+              j.story_id == ^story_id and j.status in ^options.statuses and
+                j.updated_at <= ^cutoff,
             order_by: [asc: j.updated_at],
             limit: ^options.limit,
             select: j.id
@@ -370,7 +371,7 @@ defmodule Storytime.Stories do
       |> normalize_keys()
       |> Map.put(:story_id, story_id)
       |> Map.put_new(:title, "Music Track")
-      |> Map.put_new(:mood, "gentle")
+      |> Map.put_new(:mood, "children, instrumental, soundtrack")
 
     %MusicTrack{}
     |> MusicTrack.changeset(attrs)
@@ -691,7 +692,7 @@ defmodule Storytime.Stories do
     |> Enum.reduce(%{}, fn {k, v}, acc ->
       case normalize_key(k) do
         nil -> acc
-        key -> Map.put(acc, key, v)
+        key -> Map.put(acc, key, normalize_value(key, v))
       end
     end)
   end
@@ -730,6 +731,7 @@ defmodule Storytime.Stories do
       "audio_url" -> :audio_url
       "timings_url" -> :timings_url
       "mood" -> :mood
+      "tags" -> :mood
       "track_id" -> :track_id
       "start_page_index" -> :start_page_index
       "end_page_index" -> :end_page_index
@@ -744,7 +746,8 @@ defmodule Storytime.Stories do
   defp normalize_prune_options(opts) do
     opts = opts || %{}
 
-    with {:ok, statuses} <- normalize_prune_statuses(Map.get(opts, "statuses", Map.get(opts, :statuses))),
+    with {:ok, statuses} <-
+           normalize_prune_statuses(Map.get(opts, "statuses", Map.get(opts, :statuses))),
          {:ok, older_than_seconds} <-
            normalize_non_negative_integer(
              Map.get(opts, "older_than_seconds", Map.get(opts, :older_than_seconds, 300)),
@@ -783,6 +786,17 @@ defmodule Storytime.Stories do
   end
 
   defp normalize_status(_value), do: nil
+
+  defp normalize_value(:mood, value) when is_list(value) do
+    value
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(", ")
+  end
+
+  defp normalize_value(:mood, value) when is_binary(value), do: String.trim(value)
+  defp normalize_value(_key, value), do: value
 
   defp normalize_non_negative_integer(value, _default) when is_integer(value) and value >= 0,
     do: {:ok, value}

@@ -7,15 +7,20 @@ defmodule Storytime.Workers.MusicGenWorker do
 
   alias Storytime.Assets
   alias Storytime.Notifier
+  alias Storytime.SonautoTags
   alias Storytime.Stories
 
   @sonauto_api_base_default "https://api.sonauto.ai/v1"
+  @sonauto_generation_version_default "v3"
+  @sonauto_generation_path_v2 "/generations"
+  @sonauto_generation_path_v3 "/generations/v3"
   @sonauto_poll_attempts_default 40
   @sonauto_poll_sleep_ms_default 2_000
   @sonauto_request_timeout_ms_default 180_000
   @sonauto_poll_request_timeout_ms_default 10_000
   @sonauto_poll_max_elapsed_ms_default 180_000
   @sonauto_poll_stale_ms_default 90_000
+  @fallback_music_tags ["children", "instrumental", "soundtrack"]
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -63,7 +68,7 @@ defmodule Storytime.Workers.MusicGenWorker do
 
   @doc false
   def generate_song(prompt) when is_binary(prompt) do
-    maybe_sonauto(prompt)
+    maybe_sonauto(prompt, [])
   end
 
   @doc false
@@ -100,16 +105,16 @@ defmodule Storytime.Workers.MusicGenWorker do
   end
 
   defp generate_music(track) do
-    prompt =
-      "Gentle instrumental children's story background music, mood: #{track.mood || "calm"}."
+    tags = music_tags_for_track(track)
+    prompt = music_prompt(track, tags)
 
-    case maybe_sonauto(prompt) do
+    case maybe_sonauto(prompt, tags) do
       {:ok, bytes} -> {:ok, bytes, "sonauto"}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp maybe_sonauto(prompt) do
+  defp maybe_sonauto(prompt, tags) do
     api_key = System.get_env("SONAUTO_API_KEY")
 
     if blank?(api_key) do
@@ -123,7 +128,7 @@ defmodule Storytime.Workers.MusicGenWorker do
         {"accept", "application/json"}
       ]
 
-      with {:ok, create_body} <- create_sonauto_generation(base, headers, prompt),
+      with {:ok, create_body} <- create_sonauto_generation(base, headers, prompt, tags),
            task_id when is_binary(task_id) <- extract_task_id(create_body),
            {:ok, audio_url} <-
              poll_sonauto_audio_url(
@@ -148,10 +153,10 @@ defmodule Storytime.Workers.MusicGenWorker do
     end
   end
 
-  defp create_sonauto_generation(base, headers, prompt) do
+  defp create_sonauto_generation(base, headers, prompt, tags) do
     with {:error, reason} <-
-           request_sonauto_generation(base, headers, build_create_payload(prompt)),
-         {:ok, body} <- retry_without_tags_if_invalid(base, headers, prompt, reason) do
+           request_sonauto_generation(base, headers, build_create_payload(prompt, tags)),
+         {:ok, body} <- retry_without_tags_if_invalid(base, headers, prompt, tags, reason) do
       {:ok, body}
     else
       {:ok, body} -> {:ok, body}
@@ -159,18 +164,19 @@ defmodule Storytime.Workers.MusicGenWorker do
     end
   end
 
-  defp retry_without_tags_if_invalid(base, headers, prompt, {:sonauto_error, 422, body}) do
+  defp retry_without_tags_if_invalid(base, headers, prompt, tags, {:sonauto_error, 422, body}) do
     if invalid_tags_error?(body) do
-      request_sonauto_generation(base, headers, build_create_payload(prompt, false))
+      request_sonauto_generation(base, headers, build_create_payload(prompt, tags, false))
     else
       {:error, {:sonauto_error, 422, body}}
     end
   end
 
-  defp retry_without_tags_if_invalid(_base, _headers, _prompt, reason), do: {:error, reason}
+  defp retry_without_tags_if_invalid(_base, _headers, _prompt, _tags, reason),
+    do: {:error, reason}
 
   defp request_sonauto_generation(base, headers, create_payload) do
-    case Req.post("#{base}/generations",
+    case Req.post(base <> sonauto_generation_path(),
            headers: headers,
            json: create_payload,
            receive_timeout: sonauto_request_timeout_ms(),
@@ -189,15 +195,15 @@ defmodule Storytime.Workers.MusicGenWorker do
     end
   end
 
-  defp build_create_payload(prompt, include_tags \\ true) do
+  defp build_create_payload(prompt, tags, include_tags \\ true) do
     payload = %{
       prompt: prompt,
       instrumental: true,
       output_format: "mp3"
     }
 
-    if include_tags do
-      Map.put(payload, :tags, sonauto_tags(prompt))
+    if include_tags and is_list(tags) and tags != [] do
+      Map.put(payload, :tags, tags)
     else
       payload
     end
@@ -411,19 +417,53 @@ defmodule Storytime.Workers.MusicGenWorker do
 
   defp sonauto_api_base, do: System.get_env("SONAUTO_API_BASE") || @sonauto_api_base_default
 
-  defp sonauto_tags(prompt) do
-    base_tags = ["children", "instrumental", "background", "storybook"]
+  defp sonauto_generation_path do
+    generation_path_for_env(System.get_env("SONAUTO_GENERATION_VERSION"))
+  end
 
-    mood_tags =
-      prompt
-      |> String.downcase()
-      |> String.split(~r/[^a-z0-9]+/, trim: true)
-      |> Enum.filter(
-        &(&1 in ["calm", "gentle", "mysterious", "happy", "sad", "adventure", "peaceful"])
-      )
-      |> Enum.uniq()
+  @doc false
+  def generation_path_for_env(version) when is_binary(version) do
+    case String.downcase(String.trim(version)) do
+      "v2" -> @sonauto_generation_path_v2
+      _ -> @sonauto_generation_path_v3
+    end
+  end
 
-    Enum.uniq(base_tags ++ mood_tags)
+  def generation_path_for_env(_version),
+    do: generation_path_for_env(@sonauto_generation_version_default)
+
+  @doc false
+  def music_tags_for_track(track) when is_map(track) do
+    tags =
+      track
+      |> Map.get(:mood)
+      |> SonautoTags.normalize_tags()
+
+    if tags == [], do: default_music_tags(), else: tags
+  end
+
+  def music_tags_for_track(_), do: default_music_tags()
+
+  defp default_music_tags do
+    @fallback_music_tags
+    |> Enum.filter(&SonautoTags.contains?/1)
+    |> case do
+      [] -> []
+      tags -> tags
+    end
+  end
+
+  defp music_prompt(track, tags) do
+    title = (Map.get(track, :title) || "") |> to_string() |> String.trim()
+    safe_title = if title == "", do: "Untitled", else: title
+
+    tags_phrase =
+      case tags do
+        [] -> "children story, instrumental, cinematic underscore"
+        list -> Enum.join(list, ", ")
+      end
+
+    "Instrumental background score for a children's story page. Title: #{safe_title}. Preferred style tags: #{tags_phrase}."
   end
 
   defp sonauto_poll_attempts do

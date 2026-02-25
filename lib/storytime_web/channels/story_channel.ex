@@ -2,6 +2,7 @@ defmodule StorytimeWeb.StoryChannel do
   use StorytimeWeb, :channel
 
   alias Storytime.Generation
+  alias Storytime.SonautoTags
   alias Storytime.Stories
 
   @required_client_events [
@@ -349,8 +350,14 @@ defmodule StorytimeWeb.StoryChannel do
 
   @impl true
   def handle_in("prune_generation_jobs", payload, socket) do
-    with {:ok, result} <- Stories.prune_generation_history(socket.assigns.story_id, payload || %{}) do
-      broadcast!(socket, "generation_history_pruned", Map.put(result, :story_id, socket.assigns.story_id))
+    with {:ok, result} <-
+           Stories.prune_generation_history(socket.assigns.story_id, payload || %{}) do
+      broadcast!(
+        socket,
+        "generation_history_pruned",
+        Map.put(result, :story_id, socket.assigns.story_id)
+      )
+
       {:reply, {:ok, result}, socket}
     else
       {:error, reason} -> {:reply, {:error, normalize_error(reason)}, socket}
@@ -484,6 +491,7 @@ defmodule StorytimeWeb.StoryChannel do
       story_id: track.story_id,
       title: track.title,
       mood: track.mood,
+      tags: track |> Map.get(:mood) |> SonautoTags.normalize_tags(),
       audio_url: track.audio_url
     }
   end

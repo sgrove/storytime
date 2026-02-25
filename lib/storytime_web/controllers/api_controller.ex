@@ -2,9 +2,10 @@ defmodule StorytimeWeb.ApiController do
   use StorytimeWeb, :controller
 
   alias Storytime.Assets
-  alias Storytime.Stories
   alias Storytime.JobDiagnostics
+  alias Storytime.SonautoTags
   alias Storytime.StoryPack
+  alias Storytime.Stories
 
   @elevenlabs_tts_base "https://api.elevenlabs.io/v1/text-to-speech"
 
@@ -134,6 +135,14 @@ defmodule StorytimeWeb.ApiController do
     conn
     |> put_status(:bad_request)
     |> json(%{error: "unsupported_voice_provider"})
+  end
+
+  def music_tags(conn, _params) do
+    json(conn, %{
+      provider: "sonauto",
+      version: "v3",
+      tags: SonautoTags.all()
+    })
   end
 
   def voice_preview(conn, params) do
@@ -284,6 +293,7 @@ defmodule StorytimeWeb.ApiController do
             id: t.id,
             title: t.title,
             mood: t.mood,
+            tags: track_tags(t),
             audio_url: t.audio_url,
             music_spans:
               Enum.map(t.music_spans, fn s ->
@@ -321,6 +331,12 @@ defmodule StorytimeWeb.ApiController do
     System.get_env("RENDER_GIT_COMMIT") ||
       System.get_env("RENDER_GIT_SHA") ||
       System.get_env("SOURCE_VERSION")
+  end
+
+  defp track_tags(track) do
+    track
+    |> Map.get(:mood)
+    |> SonautoTags.normalize_tags()
   end
 
   defp elevenlabs_voices do

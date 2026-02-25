@@ -10,6 +10,7 @@ defmodule StorytimeWeb.Router do
 
     get("/health", HealthController, :show)
     get("/api/version", ApiController, :version)
+    get("/api/music-tags", ApiController, :music_tags)
     get("/api/voices/:provider", ApiController, :voices)
     post("/api/voices/preview", ApiController, :voice_preview)
 

@@ -38,6 +38,13 @@ defmodule Storytime.Workers.MusicGenWorkerTest do
     assert :failed == MusicGenWorker.normalize_task_status("cancelled")
   end
 
+  test "generation path defaults to v3 and supports v2 override" do
+    assert "/generations/v3" == MusicGenWorker.generation_path_for_env(nil)
+    assert "/generations/v3" == MusicGenWorker.generation_path_for_env("v3")
+    assert "/generations/v3" == MusicGenWorker.generation_path_for_env("v3-preview")
+    assert "/generations" == MusicGenWorker.generation_path_for_env("v2")
+  end
+
   test "non_retryable_reason identifies configuration and terminal provider errors" do
     assert MusicGenWorker.non_retryable_reason?(:missing_sonauto_api_key)
     assert MusicGenWorker.non_retryable_reason?(:track_not_found)
@@ -82,5 +89,20 @@ defmodule Storytime.Workers.MusicGenWorkerTest do
     assert MusicGenWorker.invalid_tags_error?(body)
     refute MusicGenWorker.invalid_tags_error?(%{"detail" => [%{"msg" => "other error"}]})
     refute MusicGenWorker.invalid_tags_error?(%{})
+  end
+
+  test "music_tags_for_track normalizes to official sonauto v3 tags" do
+    tags = MusicGenWorker.music_tags_for_track(%{mood: "Ambient, JAZZ, unknown-tag"})
+
+    assert "ambient" in tags
+    assert "jazz" in tags
+    refute "unknown-tag" in tags
+  end
+
+  test "music_tags_for_track falls back when no valid tags are provided" do
+    tags = MusicGenWorker.music_tags_for_track(%{mood: "not-a-real-tag"})
+
+    assert "children" in tags
+    assert "instrumental" in tags
   end
 end
