@@ -18,6 +18,7 @@ defmodule Storytime.Stories.Story do
     has_many :characters, Storytime.Stories.Character
     has_many :pages, Storytime.Stories.Page
     has_many :music_tracks, Storytime.Stories.MusicTrack
+    has_many :generation_jobs, Storytime.Stories.GenerationJob
 
     timestamps(type: :utc_datetime_usec)
   end

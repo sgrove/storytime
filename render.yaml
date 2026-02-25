@@ -29,6 +29,8 @@ services:
         sync: false
       - key: RENDER_API_KEY
         sync: false
+      - key: RENDER_READER_TEMPLATE_SERVICE_ID
+        value: srv-d6fiv3haae7s73as3ch0
       - key: INSTANT_APP_ID
         sync: false
     disk:
@@ -39,7 +41,8 @@ services:
   - type: web
     name: storytime-editor
     runtime: static
-    buildCommand: echo "Static bootstrap"
+    buildCommand: |
+      echo "editor static"
     staticPublishPath: editor
     routes:
       - type: rewrite
@@ -49,8 +52,20 @@ services:
   - type: web
     name: storytime-reader-template
     runtime: static
-    buildCommand: echo "Static bootstrap"
+    buildCommand: |
+      printf "{\"apiBase\":\"%s\",\"storyId\":\"%s\",\"storySlug\":\"%s\",\"packUrl\":\"%s\",\"instantAppId\":\"%s\"}\n" "$VITE_API_HTTP_URL" "$VITE_STORY_ID" "$VITE_STORY_SLUG" "$VITE_STORY_PACK_URL" "$VITE_INSTANT_APP_ID" > reader/runtime-config.json
     staticPublishPath: reader
+    envVars:
+      - key: VITE_API_HTTP_URL
+        value: https://storytime-api-091733.onrender.com
+      - key: VITE_STORY_ID
+        value: demo
+      - key: VITE_STORY_SLUG
+        value: demo
+      - key: VITE_STORY_PACK_URL
+        value: https://storytime-api-091733.onrender.com/api/stories/demo/pack
+      - key: VITE_INSTANT_APP_ID
+        sync: false
     routes:
       - type: rewrite
         source: /*

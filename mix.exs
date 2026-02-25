@@ -31,7 +31,9 @@ defmodule Storytime.MixProject do
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.4"},
       {:cors_plug, "~> 3.0"},
-      {:plug_cowboy, "~> 2.7"}
+      {:plug_cowboy, "~> 2.7"},
+      {:req, "~> 0.5"},
+      {:oban, "~> 2.19"}
     ]
   end
 end

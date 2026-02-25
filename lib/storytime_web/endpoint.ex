@@ -5,6 +5,12 @@ defmodule StorytimeWeb.Endpoint do
     websocket: [check_origin: false],
     longpoll: false
 
+  plug Plug.Static,
+    at: "/assets",
+    from: assets_root(),
+    gzip: false,
+    cache_control_for_etags: "public, max-age=31536000"
+
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
@@ -19,4 +25,8 @@ defmodule StorytimeWeb.Endpoint do
     json_decoder: Phoenix.json_library()
 
   plug StorytimeWeb.Router
+
+  defp assets_root do
+    System.get_env("ASSETS_ROOT") || "/app/assets"
+  end
 end

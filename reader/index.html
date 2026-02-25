@@ -1,18 +1,724 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Storytime Reader Bootstrap</title>
+    <title>Storytime Reader</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Nunito:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
-      .card { max-width: 800px; border: 1px solid #ddd; border-radius: 12px; padding: 1rem 1.25rem; }
+      :root {
+        --bg: #020813;
+        --bg2: #051327;
+        --glass: rgba(238, 246, 255, 0.13);
+        --glass-strong: rgba(238, 246, 255, 0.21);
+        --ink: #f0f6ff;
+        --muted: #bfd1ea;
+        --amber: #e8b450;
+        --amber-soft: #f4d28f;
+        --danger: #f09887;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "Nunito", sans-serif;
+        color: var(--ink);
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 20% 14%, rgba(25, 89, 153, 0.25), transparent 35%),
+          radial-gradient(circle at 82% 16%, rgba(44, 26, 91, 0.34), transparent 34%),
+          linear-gradient(180deg, var(--bg2), var(--bg));
+      }
+
+      .reader {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 1fr 340px;
+      }
+
+      .stage {
+        position: relative;
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: 1fr auto;
+      }
+
+      .scene-wrap {
+        position: relative;
+        padding: 20px;
+        display: grid;
+        place-items: center;
+      }
+
+      .scene-bg {
+        position: absolute;
+        inset: 0;
+        background-size: cover;
+        background-position: center;
+        filter: blur(36px) saturate(0.7) brightness(0.45);
+        transform: scale(1.12);
+        opacity: 0.8;
+      }
+
+      .scene {
+        position: relative;
+        max-width: min(96vw, 1200px);
+        max-height: calc(100vh - 220px);
+        width: 100%;
+        border-radius: 22px;
+        overflow: hidden;
+        border: 1px solid rgba(245, 227, 192, 0.4);
+        box-shadow: 0 24px 58px rgba(0, 0, 0, 0.45);
+        background: rgba(7, 14, 26, 0.85);
+      }
+
+      .scene img {
+        width: 100%;
+        height: 100%;
+        max-height: calc(100vh - 220px);
+        object-fit: contain;
+        background: rgba(5, 11, 22, 0.95);
+      }
+
+      .cursor-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .cursor {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 209, 120, 0.9);
+        color: #1a1308;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .caption {
+        position: relative;
+        margin: 0 20px 18px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 16px;
+        backdrop-filter: blur(8px);
+        background: var(--glass);
+        padding: 14px 16px;
+      }
+
+      .narration {
+        font-size: clamp(17px, 2.4vw, 23px);
+        line-height: 1.5;
+        margin-bottom: 10px;
+      }
+
+      .word.active {
+        color: #1d1407;
+        background: linear-gradient(180deg, #ffd67f, #ebb454);
+        border-radius: 8px;
+        padding: 1px 2px;
+      }
+
+      .dialogues {
+        display: grid;
+        gap: 8px;
+      }
+
+      .line {
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 10px;
+        padding: 8px;
+        background: rgba(11, 22, 35, 0.65);
+      }
+
+      .line-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 5px;
+      }
+
+      .small-btn,
+      .btn {
+        border: 1px solid rgba(255, 224, 168, 0.45);
+        border-radius: 999px;
+        background: linear-gradient(180deg, #3b4e6d, #202c42);
+        color: #ffe8b8;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .btn { padding: 8px 12px; }
+      .small-btn { padding: 5px 9px; font-size: 12px; }
+
+      .sidebar {
+        border-left: 1px solid rgba(221, 232, 255, 0.2);
+        background: linear-gradient(180deg, rgba(8, 20, 34, 0.76), rgba(7, 14, 24, 0.9));
+        backdrop-filter: blur(14px);
+        padding: 14px;
+        display: grid;
+        gap: 12px;
+        align-content: start;
+      }
+
+      .card {
+        border: 1px solid rgba(255, 236, 198, 0.26);
+        border-radius: 14px;
+        background: rgba(20, 31, 46, 0.62);
+        padding: 12px;
+      }
+
+      .card h2 {
+        margin: 0 0 8px;
+        font-family: "Cinzel", serif;
+        font-size: 18px;
+        color: var(--amber-soft);
+      }
+
+      .controls {
+        display: grid;
+        gap: 8px;
+      }
+
+      .nav {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .slider-row {
+        display: grid;
+        gap: 5px;
+      }
+
+      input[type="range"] { width: 100%; }
+
+      .presence-list {
+        display: grid;
+        gap: 7px;
+      }
+
+      .presence {
+        border: 1px solid rgba(174, 201, 241, 0.35);
+        border-radius: 9px;
+        padding: 6px 8px;
+        font-size: 13px;
+      }
+
+      .status {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .error { color: var(--danger); }
+
+      @media (max-width: 1080px) {
+        .reader { grid-template-columns: 1fr; }
+        .sidebar { border-left: none; border-top: 1px solid rgba(221, 232, 255, 0.2); }
+      }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1>Storytime Reader Bootstrap</h1>
-      <p>Render static site template placeholder. Next step is StoryPack reader runtime.</p>
+    <div class="reader">
+      <main class="stage" id="stage">
+        <div class="scene-wrap" id="sceneWrap">
+          <div class="scene-bg" id="sceneBg"></div>
+          <div class="scene" id="sceneBox"></div>
+          <div class="cursor-layer" id="cursorLayer"></div>
+        </div>
+        <section class="caption">
+          <div class="narration" id="narration"></div>
+          <div class="dialogues" id="dialogues"></div>
+        </section>
+      </main>
+
+      <aside class="sidebar">
+        <section class="card">
+          <h2 id="storyTitle">Storytime Reader</h2>
+          <div class="status" id="storyMeta">Loading story...</div>
+          <div class="status" id="errorBox"></div>
+        </section>
+
+        <section class="card controls">
+          <h2>Navigation</h2>
+          <div class="nav">
+            <button class="btn" data-action="prev-page">Prev</button>
+            <button class="btn" data-action="toggle-mode">Mode</button>
+            <button class="btn" data-action="next-page">Next</button>
+          </div>
+          <div class="status" id="pageLabel">Page 0 / 0</div>
+        </section>
+
+        <section class="card controls">
+          <h2>Audio</h2>
+          <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn" data-action="play-narration">Narration</button>
+            <button class="btn" data-action="pause-voice">Pause</button>
+            <button class="btn" data-action="stop-voice">Stop</button>
+          </div>
+          <div class="slider-row">
+            <label>Voice Volume</label>
+            <input id="voiceVolume" type="range" min="0" max="1" step="0.01" value="0.9" />
+          </div>
+          <div class="slider-row">
+            <label>Music Volume</label>
+            <input id="musicVolume" type="range" min="0" max="1" step="0.01" value="0.35" />
+          </div>
+        </section>
+
+        <section class="card controls">
+          <h2>Collaboration</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn" data-action="toggle-host">Toggle Host</button>
+            <button class="btn" data-action="toggle-follow">Toggle Follow</button>
+          </div>
+          <div class="status" id="collabStatus"></div>
+          <div class="presence-list" id="presenceList"></div>
+        </section>
+      </aside>
     </div>
+
+    <audio id="voiceAudio" preload="metadata"></audio>
+    <audio id="musicA" preload="metadata" loop></audio>
+    <audio id="musicB" preload="metadata" loop></audio>
+
+    <script>
+      const state = {
+        config: null,
+        pack: null,
+        pageIndex: 0,
+        mode: "read_alone",
+        voicePlaying: null,
+        timingsCache: new Map(),
+        currentHighlight: null,
+        activeMusicUrl: null,
+        musicDeck: "a",
+        participants: new Map(),
+        identity: {
+          id: `reader-${Math.random().toString(36).slice(2, 10)}`,
+          name: `Reader ${Math.floor(Math.random() * 900 + 100)}`
+        },
+        collab: {
+          channel: null,
+          isHost: true,
+          followHost: true,
+          heartbeat: null
+        }
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (value) => String(value ?? "").replace(/[&<>\"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
+
+      async function loadRuntimeConfig() {
+        const query = new URLSearchParams(window.location.search);
+        let fileConfig = {};
+        try {
+          fileConfig = await fetch("/runtime-config.json", { cache: "no-store" }).then((r) => r.json());
+        } catch (_err) {}
+
+        const apiBase =
+          query.get("api") ||
+          fileConfig.apiBase ||
+          "https://storytime-api-091733.onrender.com";
+
+        const storyId = query.get("story_id") || fileConfig.storyId || "";
+        const storySlug = query.get("story_slug") || fileConfig.storySlug || inferSlugFromHostname();
+        const packUrl = query.get("pack") || fileConfig.packUrl || "";
+
+        return {
+          apiBase: apiBase.replace(/\/$/, ""),
+          storyId,
+          storySlug,
+          packUrl,
+          instantAppId: query.get("instant") || fileConfig.instantAppId || ""
+        };
+      }
+
+      function inferSlugFromHostname() {
+        const host = window.location.hostname || "";
+        const root = host.split(".")[0] || "";
+        if (root.startsWith("storytime-")) return root.replace(/^storytime-/, "");
+        return "";
+      }
+
+      async function loadPack() {
+        const cfg = state.config;
+        let url = cfg.packUrl;
+
+        if (!url && cfg.storyId) url = `${cfg.apiBase}/api/stories/${encodeURIComponent(cfg.storyId)}/pack`;
+        if (!url && cfg.storySlug) url = `${cfg.apiBase}/api/story-slugs/${encodeURIComponent(cfg.storySlug)}/pack`;
+
+        if (!url) throw new Error("missing_story_config");
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`story_pack_http_${res.status}`);
+        state.pack = await res.json();
+      }
+
+      function currentPage() {
+        return (state.pack?.pages || [])[state.pageIndex] || null;
+      }
+
+      function renderPage() {
+        const pack = state.pack;
+        const page = currentPage();
+
+        if (!pack || !page) {
+          $("sceneBox").innerHTML = `<div style="padding:40px;" class="error">Story is unavailable.</div>`;
+          $("narration").textContent = "";
+          $("dialogues").innerHTML = "";
+          return;
+        }
+
+        const sceneUrl = page.scene?.url || "";
+        $("sceneBg").style.backgroundImage = sceneUrl ? `url('${sceneUrl}')` : "none";
+        $("sceneBox").innerHTML = sceneUrl
+          ? `<img src="${esc(sceneUrl)}" alt="scene" />`
+          : `<div style="padding:40px;" class="status">No scene image yet.</div>`;
+
+        renderNarrationText(page.narration?.text || "");
+
+        $("dialogues").innerHTML = (page.dialogue || []).map((line) => `
+          <article class="line" data-line-id="${line.id}">
+            <div class="line-head">
+              <strong>${esc(line.characterName || "Speaker")}</strong>
+              <button class="small-btn" data-action="play-line" data-line-id="${line.id}">Play</button>
+            </div>
+            <div id="line-text-${line.id}">${renderWordMarkup(line.text || "")}</div>
+          </article>
+        `).join("");
+
+        $("pageLabel").textContent = `Page ${state.pageIndex + 1} / ${pack.pages.length}`;
+        $("storyTitle").textContent = pack.title || "Storytime Reader";
+        $("storyMeta").textContent = `${pack.slug || ""} • mode: ${state.mode}`;
+
+        updateMusicForPage();
+        sendCollab({ type: "page", pageIndex: state.pageIndex, host: state.collab.isHost });
+
+        if (state.mode === "narrate") {
+          playNarration().catch(showError);
+        }
+      }
+
+      function renderWordMarkup(text) {
+        if (!text) return "";
+        return text.split(/(\s+)/).map((chunk) => {
+          if (/^\s+$/.test(chunk)) return chunk;
+          return `<span class="word">${esc(chunk)}</span>`;
+        }).join("");
+      }
+
+      function renderNarrationText(text) {
+        $("narration").innerHTML = renderWordMarkup(text);
+      }
+
+      function clearHighlighting() {
+        document.querySelectorAll(".word.active").forEach((node) => node.classList.remove("active"));
+      }
+
+      function applyHighlight(container, words, currentMs) {
+        if (!container || !Array.isArray(words)) return;
+        const spans = [...container.querySelectorAll(".word")];
+        spans.forEach((span) => span.classList.remove("active"));
+
+        const idx = words.findIndex((word) => currentMs >= word.startMs && currentMs <= word.endMs);
+        if (idx >= 0 && spans[idx]) spans[idx].classList.add("active");
+      }
+
+      async function fetchTimings(timingsUrl) {
+        if (!timingsUrl) return null;
+        if (state.timingsCache.has(timingsUrl)) return state.timingsCache.get(timingsUrl);
+        const payload = await fetch(timingsUrl).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        state.timingsCache.set(timingsUrl, payload);
+        return payload;
+      }
+
+      async function playVoice(audioUrl, timingsUrl, targetContainer) {
+        if (!audioUrl) throw new Error("missing_audio_url");
+
+        const voice = $("voiceAudio");
+        voice.pause();
+        voice.src = audioUrl;
+        voice.volume = Number($("voiceVolume").value || 0.9);
+
+        const timings = await fetchTimings(timingsUrl);
+        const words = timings?.segments?.[0]?.words || [];
+
+        state.currentHighlight = { targetContainer, words };
+
+        await voice.play();
+      }
+
+      async function playNarration() {
+        const page = currentPage();
+        if (!page?.narration?.audioUrl) return;
+
+        const container = $("narration");
+        await playVoice(page.narration.audioUrl, page.narration.timingsUrl, container);
+        state.voicePlaying = { type: "narration", pageIndex: state.pageIndex };
+      }
+
+      async function playLine(lineId) {
+        const page = currentPage();
+        const line = (page?.dialogue || []).find((d) => d.id === lineId);
+        if (!line || !line.audioUrl) return;
+
+        const container = $(`line-text-${lineId}`);
+        await playVoice(line.audioUrl, line.timingsUrl, container);
+        state.voicePlaying = { type: "dialogue", lineId };
+      }
+
+      function stopVoice() {
+        const voice = $("voiceAudio");
+        voice.pause();
+        voice.currentTime = 0;
+        state.voicePlaying = null;
+        clearHighlighting();
+      }
+
+      function pageTrackForIndex(pageIndex) {
+        const music = state.pack?.music;
+        if (!music) return null;
+
+        const spans = music.spans || [];
+        const match = spans.find((span) => pageIndex >= span.startPageIndex && pageIndex <= span.endPageIndex);
+        if (!match) return null;
+        return (music.tracks || []).find((track) => track.id === match.trackId) || null;
+      }
+
+      async function crossfadeTo(nextUrl) {
+        if (!nextUrl || nextUrl === state.activeMusicUrl) return;
+
+        const current = state.musicDeck === "a" ? $("musicA") : $("musicB");
+        const incoming = state.musicDeck === "a" ? $("musicB") : $("musicA");
+        state.musicDeck = state.musicDeck === "a" ? "b" : "a";
+
+        incoming.src = nextUrl;
+        incoming.volume = 0;
+        await incoming.play().catch(() => {});
+
+        const target = Number($("musicVolume").value || 0.35);
+        const steps = 18;
+        for (let i = 0; i <= steps; i += 1) {
+          incoming.volume = (target * i) / steps;
+          current.volume = target - (target * i) / steps;
+          await new Promise((resolve) => setTimeout(resolve, 70));
+        }
+
+        current.pause();
+        current.currentTime = 0;
+        current.src = "";
+        state.activeMusicUrl = nextUrl;
+      }
+
+      function updateMusicForPage() {
+        const track = pageTrackForIndex(state.pageIndex);
+        if (!track?.audioUrl) return;
+        crossfadeTo(track.audioUrl).catch(() => {});
+      }
+
+      function nextPage() {
+        if (!state.pack) return;
+        const last = (state.pack.pages || []).length - 1;
+        state.pageIndex = Math.min(last, state.pageIndex + 1);
+        renderPage();
+      }
+
+      function prevPage() {
+        state.pageIndex = Math.max(0, state.pageIndex - 1);
+        renderPage();
+      }
+
+      function showError(err) {
+        $("errorBox").textContent = `Error: ${err.message || err}`;
+        $("errorBox").classList.add("error");
+      }
+
+      function clearError() {
+        $("errorBox").textContent = "";
+        $("errorBox").classList.remove("error");
+      }
+
+      function initAudioListeners() {
+        const voice = $("voiceAudio");
+
+        voice.addEventListener("timeupdate", () => {
+          const current = state.currentHighlight;
+          if (!current) return;
+          applyHighlight(current.targetContainer, current.words, Math.round(voice.currentTime * 1000));
+        });
+
+        voice.addEventListener("ended", () => {
+          if (state.mode === "narrate" && state.voicePlaying?.type === "narration") {
+            nextPage();
+          }
+        });
+
+        $("voiceVolume").addEventListener("input", () => {
+          voice.volume = Number($("voiceVolume").value || 0.9);
+        });
+
+        $("musicVolume").addEventListener("input", () => {
+          const volume = Number($("musicVolume").value || 0.35);
+          $("musicA").volume = volume;
+          $("musicB").volume = volume;
+        });
+      }
+
+      function initControls() {
+        document.body.addEventListener("click", (event) => {
+          const node = event.target.closest("[data-action]");
+          if (!node) return;
+          const action = node.dataset.action;
+
+          if (action === "next-page") nextPage();
+          if (action === "prev-page") prevPage();
+          if (action === "toggle-mode") {
+            state.mode = state.mode === "read_alone" ? "narrate" : "read_alone";
+            renderPage();
+          }
+          if (action === "play-narration") playNarration().catch(showError);
+          if (action === "pause-voice") $("voiceAudio").pause();
+          if (action === "stop-voice") stopVoice();
+          if (action === "play-line") playLine(node.dataset.lineId).catch(showError);
+          if (action === "toggle-host") {
+            state.collab.isHost = !state.collab.isHost;
+            renderCollab();
+          }
+          if (action === "toggle-follow") {
+            state.collab.followHost = !state.collab.followHost;
+            renderCollab();
+          }
+        });
+
+        window.addEventListener("keydown", (event) => {
+          if (event.key === "ArrowRight") nextPage();
+          if (event.key === "ArrowLeft") prevPage();
+        });
+
+        let touchStartX = 0;
+        $("sceneWrap").addEventListener("touchstart", (ev) => {
+          touchStartX = ev.changedTouches[0]?.clientX || 0;
+        });
+        $("sceneWrap").addEventListener("touchend", (ev) => {
+          const endX = ev.changedTouches[0]?.clientX || 0;
+          const delta = endX - touchStartX;
+          if (delta > 40) prevPage();
+          if (delta < -40) nextPage();
+        });
+      }
+
+      function initCollab() {
+        const roomKey = state.pack?.slug || state.config.storySlug || state.config.storyId || "story";
+        state.collab.channel = new BroadcastChannel(`storytime-${roomKey}`);
+
+        state.collab.channel.onmessage = (ev) => {
+          const msg = ev.data || {};
+          if (!msg || msg.from === state.identity.id) return;
+
+          if (msg.type === "presence") {
+            state.participants.set(msg.from, {
+              id: msg.from,
+              name: msg.name,
+              pageIndex: msg.pageIndex,
+              host: !!msg.host,
+              cursor: msg.cursor,
+              seenAt: Date.now()
+            });
+            renderCollab();
+            renderCursors();
+          }
+
+          if (msg.type === "page" && state.collab.followHost && !state.collab.isHost && msg.host) {
+            state.pageIndex = msg.pageIndex;
+            renderPage();
+          }
+        };
+
+        state.collab.heartbeat = setInterval(() => {
+          sendPresence();
+          pruneParticipants();
+        }, 1800);
+
+        $("stage").addEventListener("pointermove", (ev) => {
+          const rect = $("stage").getBoundingClientRect();
+          const cursor = {
+            x: (ev.clientX - rect.left) / rect.width,
+            y: (ev.clientY - rect.top) / rect.height
+          };
+          sendPresence(cursor);
+        });
+
+        sendPresence();
+      }
+
+      function sendCollab(payload) {
+        if (!state.collab.channel) return;
+        state.collab.channel.postMessage({ from: state.identity.id, name: state.identity.name, ...payload });
+      }
+
+      function sendPresence(cursor = null) {
+        sendCollab({
+          type: "presence",
+          pageIndex: state.pageIndex,
+          host: state.collab.isHost,
+          cursor
+        });
+      }
+
+      function pruneParticipants() {
+        const cutoff = Date.now() - 7000;
+        [...state.participants.entries()].forEach(([id, p]) => {
+          if ((p.seenAt || 0) < cutoff) state.participants.delete(id);
+        });
+        renderCollab();
+        renderCursors();
+      }
+
+      function renderCursors() {
+        const layer = $("cursorLayer");
+        const peers = [...state.participants.values()].filter((p) => p.cursor);
+        layer.innerHTML = peers.map((p) => `
+          <div class="cursor" style="left:${(p.cursor.x || 0) * 100}%;top:${(p.cursor.y || 0) * 100}%;">
+            ${esc(p.name)}
+          </div>
+        `).join("");
+      }
+
+      function renderCollab() {
+        const peers = [...state.participants.values()];
+        $("collabStatus").textContent =
+          `You: ${state.identity.name} | role: ${state.collab.isHost ? "host" : "guest"} | follow host: ${state.collab.followHost ? "on" : "off"}`;
+
+        $("presenceList").innerHTML = peers.length
+          ? peers.map((p) => `<div class="presence">${esc(p.name)} • page ${p.pageIndex + 1} ${p.host ? "• host" : ""}</div>`).join("")
+          : '<div class="status">No collaborators yet.</div>';
+      }
+
+      async function boot() {
+        try {
+          clearError();
+          state.config = await loadRuntimeConfig();
+          await loadPack();
+          initAudioListeners();
+          initControls();
+          initCollab();
+          renderCollab();
+          renderPage();
+        } catch (err) {
+          showError(err);
+        }
+      }
+
+      boot();
+    </script>
   </body>
 </html>

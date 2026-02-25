@@ -7,6 +7,11 @@ config :storytime, Storytime.Repo,
   migration_primary_key: [type: :binary_id],
   migration_foreign_key: [type: :binary_id]
 
+config :storytime, Oban,
+  repo: Storytime.Repo,
+  plugins: [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24}],
+  queues: [generation: 20, deploy: 5]
+
 config :storytime, StorytimeWeb.Endpoint,
   url: [host: "localhost"],
   render_errors: [

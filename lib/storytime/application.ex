@@ -6,11 +6,9 @@ defmodule Storytime.Application do
   @impl true
   def start(_type, _args) do
     children =
-      maybe_add_repo([]) ++
-        [
-          {Phoenix.PubSub, name: Storytime.PubSub},
-          StorytimeWeb.Endpoint
-        ]
+      [{Phoenix.PubSub, name: Storytime.PubSub}] ++
+        maybe_repo_children([]) ++
+        [StorytimeWeb.Endpoint]
 
     opts = [strategy: :one_for_one, name: Storytime.Supervisor]
     Supervisor.start_link(children, opts)
@@ -22,9 +20,9 @@ defmodule Storytime.Application do
     :ok
   end
 
-  defp maybe_add_repo(children) do
+  defp maybe_repo_children(children) do
     if System.get_env("DATABASE_URL") do
-      [Storytime.Repo | children]
+      children ++ [Storytime.Repo, {Oban, Application.fetch_env!(:storytime, Oban)}]
     else
       children
     end

@@ -1,155 +1,933 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Storytime Editor Channel Probe</title>
+    <title>Storytime Editor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;700&family=Nunito+Sans:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
-      :root { color-scheme: light; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 1.25rem; }
-      .card { max-width: 920px; border: 1px solid #ddd; border-radius: 12px; padding: 1rem 1.25rem; }
-      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.5rem 0; }
-      input, button, textarea { font: inherit; padding: 0.5rem 0.6rem; border: 1px solid #cfcfcf; border-radius: 8px; }
-      input { min-width: 220px; }
-      button { cursor: pointer; background: #f7f7f7; }
-      #log { width: 100%; height: 280px; }
-      .ok { color: #166534; }
-      .err { color: #b91c1c; }
-      code { background: #f5f5f5; padding: 0.12rem 0.3rem; border-radius: 6px; }
+      :root {
+        --paper: #f7f0e3;
+        --paper-2: #efe2cb;
+        --ink: #2f2518;
+        --wood: #8a5a2d;
+        --wood-dark: #5a3516;
+        --gold: #c99a2e;
+        --gold-soft: #ddba62;
+        --line: #cfb894;
+        --ok: #2f7a47;
+        --danger: #9a3420;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "Nunito Sans", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 12% 10%, rgba(255, 242, 210, 0.68), transparent 30%),
+          radial-gradient(circle at 88% 16%, rgba(230, 194, 124, 0.35), transparent 26%),
+          linear-gradient(135deg, #f9f3e8 0%, #ead8b8 52%, #e8d8bc 100%);
+        min-height: 100vh;
+      }
+
+      .app {
+        max-width: 1500px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 280px 1fr 320px;
+        gap: 16px;
+      }
+
+      .panel {
+        background: linear-gradient(180deg, rgba(255, 250, 239, 0.93), rgba(245, 235, 213, 0.95));
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 16px 30px rgba(68, 38, 13, 0.14);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        background: linear-gradient(90deg, var(--wood-dark), var(--wood));
+        color: #fdf6e9;
+        padding: 12px 14px;
+        font-family: "Cormorant Garamond", serif;
+        font-size: 23px;
+        letter-spacing: 0.4px;
+      }
+
+      .panel-body {
+        padding: 14px;
+      }
+
+      h1, h2, h3 {
+        margin: 0;
+        font-family: "Cormorant Garamond", serif;
+        font-weight: 700;
+        line-height: 1.15;
+      }
+
+      .brand {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 14px 18px;
+        background:
+          linear-gradient(120deg, rgba(120, 67, 27, 0.95), rgba(165, 104, 42, 0.88)),
+          linear-gradient(45deg, rgba(255, 230, 180, 0.35), transparent);
+        color: #ffefcc;
+      }
+
+      .brand h1 {
+        font-size: 38px;
+      }
+
+      .brand .status {
+        font-size: 14px;
+        border: 1px solid rgba(255, 236, 184, 0.5);
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: rgba(75, 40, 14, 0.35);
+      }
+
+      .story-list {
+        display: grid;
+        gap: 8px;
+        max-height: 52vh;
+        overflow: auto;
+      }
+
+      .story-item {
+        border: 1px solid var(--line);
+        background: rgba(255, 248, 233, 0.95);
+        border-radius: 10px;
+        padding: 9px;
+        cursor: pointer;
+      }
+
+      .story-item.active {
+        border-color: var(--gold);
+        box-shadow: 0 0 0 2px rgba(201, 154, 46, 0.24);
+      }
+
+      .meta {
+        font-size: 12px;
+        opacity: 0.8;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+
+      label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        font-weight: 700;
+      }
+
+      input, textarea, select {
+        width: 100%;
+        font: inherit;
+        border-radius: 10px;
+        border: 1px solid #bea882;
+        padding: 9px 10px;
+        background: #fff9eb;
+      }
+
+      textarea { min-height: 84px; resize: vertical; }
+
+      .tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+
+      .tab-btn,
+      .btn {
+        border: 1px solid rgba(93, 55, 23, 0.35);
+        background: linear-gradient(180deg, #f9e6b9, #e0bb74);
+        color: #4d2f13;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .tab-btn.active {
+        background: linear-gradient(180deg, #ffd977, #da9b17);
+      }
+
+      .btn.flat {
+        background: #fff9eb;
+      }
+
+      .btn.warn {
+        background: linear-gradient(180deg, #f9c8a9, #e08a61);
+      }
+
+      .btn.ok {
+        background: linear-gradient(180deg, #b9e7c6, #77bd8e);
+      }
+
+      .stack { display: grid; gap: 12px; }
+
+      .card {
+        border: 1px solid #cab28d;
+        border-radius: 13px;
+        padding: 10px;
+        background: #fff8e9;
+      }
+
+      .card h3 {
+        font-size: 22px;
+        margin-bottom: 8px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .queue-list {
+        display: grid;
+        gap: 8px;
+        max-height: 70vh;
+        overflow: auto;
+      }
+
+      .queue-item {
+        border: 1px solid #c6b18d;
+        border-radius: 10px;
+        padding: 9px;
+        background: #fff8ea;
+      }
+
+      .job-pending { border-left: 4px solid #cc9a36; }
+      .job-running { border-left: 4px solid #2f71a8; }
+      .job-completed { border-left: 4px solid var(--ok); }
+      .job-failed { border-left: 4px solid var(--danger); }
+
+      .hint { font-size: 12px; opacity: 0.75; }
+
+      .preview-page {
+        border: 1px solid #c9ad80;
+        border-radius: 14px;
+        overflow: hidden;
+        background: #fff8e9;
+      }
+
+      .preview-page img {
+        display: block;
+        width: 100%;
+        max-height: 200px;
+        object-fit: contain;
+        background: #f0dfbf;
+      }
+
+      @media (max-width: 1180px) {
+        .app { grid-template-columns: 1fr; }
+        .brand { flex-direction: column; align-items: flex-start; gap: 8px; }
+      }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1>Storytime Editor Bootstrap</h1>
-      <p>
-        This placeholder verifies API + Phoenix Channels wiring.
-        It targets <code>story:{id}</code> and can send CRUD-stub events.
-      </p>
-
-      <div class="row">
-        <label>API Base</label>
-        <input id="apiBase" value="https://storytime-api-091733.onrender.com" />
-        <label>Story ID</label>
-        <input id="storyId" value="demo" />
+    <div class="app">
+      <div class="brand">
+        <h1>Storytime Workshop</h1>
+        <div class="status" id="socketStatus">Socket: idle</div>
       </div>
 
-      <div class="row">
-        <button id="btnFetchPack">Fetch StoryPack</button>
-        <button id="btnConnect">Connect Socket</button>
-        <button id="btnJoin">Join Channel</button>
-        <span id="status">status: idle</span>
-      </div>
+      <section class="panel">
+        <div class="panel-head">Lobby</div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="apiBase">API Base</label>
+            <input id="apiBase" />
+          </div>
+          <div class="actions" style="margin-bottom: 12px;">
+            <button class="btn" data-action="reload-stories">Reload</button>
+            <button class="btn flat" data-action="disconnect">Disconnect</button>
+          </div>
+          <div class="story-list" id="storyList"></div>
+          <hr style="border:none;border-top:1px solid #d3bf99;margin:12px 0;" />
+          <div class="field">
+            <label for="newTitle">New Story Title</label>
+            <input id="newTitle" placeholder="The Moonlit Garden" />
+          </div>
+          <div class="field">
+            <label for="newStyle">Art Style</label>
+            <input id="newStyle" placeholder="Watercolor, soft pastel" />
+          </div>
+          <button class="btn ok" data-action="create-story">Create Story</button>
+        </div>
+      </section>
 
-      <div class="row">
-        <button id="btnUpdateStory">Send update_story</button>
-        <button id="btnAddCharacter">Send add_character</button>
-        <button id="btnAddPage">Send add_page</button>
-        <button id="btnReorder">Send reorder_pages</button>
-      </div>
+      <section class="panel">
+        <div class="panel-head">Editor</div>
+        <div class="panel-body">
+          <div class="tabs" id="tabs"></div>
+          <div class="actions" style="margin-bottom: 10px;">
+            <button class="btn" data-action="generate-all-scenes">Generate Scenes</button>
+            <button class="btn" data-action="generate-all-audio">Generate Audio</button>
+            <button class="btn ok" data-action="generate-all">Generate All</button>
+            <input id="deploySubdomain" placeholder="deploy-subdomain" style="max-width:220px;" />
+            <button class="btn warn" data-action="deploy-story">Deploy</button>
+          </div>
+          <div id="tabContent"></div>
+        </div>
+      </section>
 
-      <textarea id="log" readonly></textarea>
+      <section class="panel">
+        <div class="panel-head">Generation Queue</div>
+        <div class="panel-body">
+          <div class="hint" style="margin-bottom: 8px;">Tracks pending/running/completed/failed generation and deploy jobs.</div>
+          <div class="queue-list" id="queueList"></div>
+        </div>
+      </section>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/phoenix@1.7.14/priv/static/phoenix.min.js"></script>
     <script>
-      const logEl = document.getElementById("log");
-      const statusEl = document.getElementById("status");
-      let socket = null;
-      let channel = null;
+      const tabs = ["story", "cast", "pages", "music", "preview"];
 
-      const now = () => new Date().toISOString().slice(11, 19);
-      const log = (msg) => {
-        logEl.value += `[${now()}] ${msg}\n`;
-        logEl.scrollTop = logEl.scrollHeight;
+      const state = {
+        apiBase: window.location.search.includes("api=")
+          ? decodeURIComponent(new URLSearchParams(window.location.search).get("api"))
+          : "https://storytime-api-091733.onrender.com",
+        wsBase: "",
+        stories: [],
+        currentStory: null,
+        currentTab: "story",
+        jobs: [],
+        socket: null,
+        channel: null,
+        jobsPoll: null,
+        previewPack: null
       };
 
-      const apiBase = () => document.getElementById("apiBase").value.trim().replace(/\/$/, "");
-      const storyId = () => document.getElementById("storyId").value.trim() || "demo";
+      const $ = (id) => document.getElementById(id);
+      const esc = (value) => String(value ?? "").replace(/[&<>\"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch]));
 
-      const wsBase = () => apiBase().replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
+      function setStatus(text, ok = true) {
+        const el = $("socketStatus");
+        el.textContent = text;
+        el.style.borderColor = ok ? "rgba(140, 230, 160, 0.5)" : "rgba(255, 170, 170, 0.55)";
+        el.style.background = ok ? "rgba(12, 68, 24, 0.36)" : "rgba(104, 25, 25, 0.33)";
+      }
 
-      document.getElementById("btnFetchPack").onclick = async () => {
-        const url = `${apiBase()}/api/stories/${encodeURIComponent(storyId())}/pack`;
+      function withApi(path) {
+        return `${state.apiBase.replace(/\/$/, "")}${path}`;
+      }
+
+      async function api(path, opts = {}) {
+        const res = await fetch(withApi(path), {
+          headers: {"content-type": "application/json", ...(opts.headers || {})},
+          ...opts
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        return body;
+      }
+
+      function wsBase() {
+        return state.apiBase.replace(/^https:\/\//, "wss://").replace(/^http:\/\//, "ws://").replace(/\/$/, "");
+      }
+
+      async function loadStories() {
         try {
-          const res = await fetch(url);
-          const json = await res.json();
-          log(`StoryPack ${res.status}: schemaVersion=${json.schemaVersion} title=${json.title}`);
+          const data = await api("/api/stories");
+          state.stories = data.stories || [];
+          if (state.currentStory) {
+            const fresh = state.stories.find((s) => s.id === state.currentStory.id);
+            if (!fresh) {
+              state.currentStory = null;
+              disconnectChannel();
+            }
+          }
+          renderStoryList();
         } catch (err) {
-          log(`StoryPack fetch failed: ${err.message}`);
+          setStatus(`API error: ${err.message}`, false);
         }
-      };
+      }
 
-      document.getElementById("btnConnect").onclick = () => {
+      async function createStory() {
+        const title = $("newTitle").value.trim() || "Untitled Story";
+        const art_style = $("newStyle").value.trim() || "storybook watercolor";
+        const data = await api("/api/stories", {
+          method: "POST",
+          body: JSON.stringify({ title, art_style })
+        });
+        $("newTitle").value = "";
+        await loadStories();
+        await selectStory(data.story.id);
+      }
+
+      async function selectStory(storyId) {
+        const payload = await api(`/api/stories/${encodeURIComponent(storyId)}`);
+        state.currentStory = payload.story;
+        state.previewPack = null;
+        renderStoryList();
+        renderTabs();
+        renderTabContent();
+        await connectChannel();
+        await loadJobs();
+      }
+
+      async function loadStoryFull() {
+        if (!state.currentStory) return;
+        const payload = await api(`/api/stories/${encodeURIComponent(state.currentStory.id)}`);
+        state.currentStory = payload.story;
+        renderStoryList();
+        renderTabContent();
+      }
+
+      async function loadJobs() {
+        if (!state.currentStory) return;
         try {
-          socket = new window.Phoenix.Socket(`${wsBase()}/socket`, { params: { client: "editor-bootstrap" } });
-          socket.connect();
-          statusEl.textContent = "status: socket connected";
-          statusEl.className = "ok";
-          log(`Socket connected -> ${wsBase()}/socket`);
-        } catch (err) {
-          statusEl.textContent = "status: socket error";
-          statusEl.className = "err";
-          log(`Socket connect failed: ${err.message}`);
-        }
-      };
+          const payload = await api(`/api/stories/${encodeURIComponent(state.currentStory.id)}/jobs`);
+          state.jobs = payload.jobs || [];
+          renderJobs();
+        } catch (_err) {}
+      }
 
-      document.getElementById("btnJoin").onclick = () => {
-        if (!socket) {
-          log("Join skipped: connect socket first");
-          return;
-        }
+      async function connectChannel() {
+        if (!state.currentStory) return;
+        disconnectChannel();
 
-        channel = socket.channel(`story:${storyId()}`, { source: "editor-bootstrap" });
+        state.socket = new window.Phoenix.Socket(`${wsBase()}/socket`, { params: { client: "editor-spa" } });
+        state.socket.connect();
 
-        const forward = [
-          "story_updated",
-          "character_added",
-          "character_updated",
-          "character_deleted",
-          "page_added",
-          "page_updated",
-          "page_deleted",
-          "pages_reordered",
-          "event_received"
-        ];
+        state.channel = state.socket.channel(`story:${state.currentStory.id}`, { role: "editor" });
 
-        forward.forEach((ev) => channel.on(ev, (payload) => log(`recv ${ev}: ${JSON.stringify(payload)}`)));
-
-        channel.join()
-          .receive("ok", (resp) => {
-            statusEl.textContent = "status: channel joined";
-            statusEl.className = "ok";
-            log(`join ok: ${JSON.stringify(resp)}`);
-          })
-          .receive("error", (resp) => {
-            statusEl.textContent = "status: join failed";
-            statusEl.className = "err";
-            log(`join error: ${JSON.stringify(resp)}`);
+        [
+          "story_updated","character_added","character_updated","character_deleted",
+          "page_added","page_updated","page_deleted","pages_reordered",
+          "dialogue_line_added","dialogue_line_updated","dialogue_line_deleted",
+          "music_track_added","music_track_updated","music_track_deleted",
+          "music_span_added","music_span_updated","music_span_deleted",
+          "generation_started","generation_progress","generation_completed","generation_failed",
+          "deploy_started","deploy_completed","deploy_failed"
+        ].forEach((eventName) => {
+          state.channel.on(eventName, async () => {
+            await Promise.all([loadStoryFull(), loadJobs()]);
+            if (state.currentTab === "preview") await loadPreviewPack();
           });
-      };
+        });
 
-      const push = (event, payload) => {
-        if (!channel) {
-          log(`Push skipped for ${event}: join channel first`);
+        state.channel.join()
+          .receive("ok", () => setStatus("Socket: connected", true))
+          .receive("error", (resp) => setStatus(`Socket join failed: ${JSON.stringify(resp)}`, false));
+
+        clearInterval(state.jobsPoll);
+        state.jobsPoll = setInterval(loadJobs, 3000);
+      }
+
+      function disconnectChannel() {
+        if (state.jobsPoll) clearInterval(state.jobsPoll);
+        state.jobsPoll = null;
+        if (state.channel) state.channel.leave();
+        if (state.socket) state.socket.disconnect();
+        state.channel = null;
+        state.socket = null;
+        setStatus("Socket: idle", true);
+      }
+
+      function push(event, payload) {
+        return new Promise((resolve, reject) => {
+          if (!state.channel) return reject(new Error("channel_not_connected"));
+          state.channel.push(event, payload)
+            .receive("ok", (resp) => resolve(resp))
+            .receive("error", (resp) => reject(new Error(resp.error || "event_error")));
+        });
+      }
+
+      function renderStoryList() {
+        const root = $("storyList");
+        if (!state.stories.length) {
+          root.innerHTML = '<div class="hint">No stories yet. Create your first story.</div>';
           return;
         }
 
-        channel.push(event, payload)
-          .receive("ok", (resp) => log(`ack ${event}: ${JSON.stringify(resp)}`))
-          .receive("error", (resp) => log(`err ${event}: ${JSON.stringify(resp)}`));
-      };
+        root.innerHTML = state.stories.map((story) => {
+          const active = state.currentStory && story.id === state.currentStory.id;
+          return `
+            <button class="story-item ${active ? "active" : ""}" data-action="pick-story" data-story-id="${story.id}">
+              <div><strong>${esc(story.title)}</strong></div>
+              <div class="meta">${esc(story.slug)} | ${esc(story.status)}</div>
+            </button>
+          `;
+        }).join("");
+      }
 
-      document.getElementById("btnUpdateStory").onclick = () =>
-        push("update_story", { title: "Moonlit Garden", art_style: "watercolor" });
+      function renderTabs() {
+        $("tabs").innerHTML = tabs.map((tab) => `
+          <button class="tab-btn ${state.currentTab === tab ? "active" : ""}" data-action="switch-tab" data-tab="${tab}">
+            ${tab[0].toUpperCase() + tab.slice(1)}
+          </button>
+        `).join("");
+      }
 
-      document.getElementById("btnAddCharacter").onclick = () =>
-        push("add_character", { name: "Luna", visual_description: "A brave fox" });
+      function currentCharacters() {
+        return (state.currentStory?.characters || []).slice().sort((a, b) => a.sort_order - b.sort_order);
+      }
 
-      document.getElementById("btnAddPage").onclick = () =>
-        push("add_page", { page_index: 0, scene_description: "Lanterns in the trees" });
+      function currentPages() {
+        return (state.currentStory?.pages || []).slice().sort((a, b) => a.page_index - b.page_index);
+      }
 
-      document.getElementById("btnReorder").onclick = () =>
-        push("reorder_pages", { page_ids: ["page-2", "page-1"] });
+      function currentTracks() {
+        return (state.currentStory?.music_tracks || []);
+      }
+
+      function renderStoryTab() {
+        if (!state.currentStory) return '<div class="hint">Pick a story from the lobby.</div>';
+        return `
+          <div class="stack">
+            <div class="card">
+              <h3>Story Details</h3>
+              <div class="row">
+                <div class="field"><label>Title</label><input id="storyTitle" value="${esc(state.currentStory.title)}" /></div>
+                <div class="field"><label>Slug</label><input id="storySlug" value="${esc(state.currentStory.slug)}" /></div>
+              </div>
+              <div class="field"><label>Art Style</label><textarea id="storyStyle">${esc(state.currentStory.art_style || "")}</textarea></div>
+              <div class="actions">
+                <button class="btn ok" data-action="save-story">Save Story</button>
+                ${state.currentStory.deploy_url ? `<a class="btn" href="${esc(state.currentStory.deploy_url)}" target="_blank">Open Deploy</a>` : ""}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderCastTab() {
+        if (!state.currentStory) return '<div class="hint">Pick a story first.</div>';
+
+        const cards = currentCharacters().map((c) => `
+          <div class="card">
+            <h3>${esc(c.name || "Character")}</h3>
+            <div class="row">
+              <div class="field"><label>Name</label><input id="char-name-${c.id}" value="${esc(c.name)}" /></div>
+              <div class="field"><label>Voice ID</label><input id="char-voice-${c.id}" value="${esc(c.voice_id || "")}" /></div>
+            </div>
+            <div class="field"><label>Visual Description</label><textarea id="char-desc-${c.id}">${esc(c.visual_description || "")}</textarea></div>
+            ${c.headshot_url ? `<img src="${esc(withApi(c.headshot_url))}" alt="headshot" style="max-width:180px;border-radius:10px;border:1px solid #ccb48f;" />` : ""}
+            <div class="actions">
+              <button class="btn" data-action="save-character" data-id="${c.id}">Save</button>
+              <button class="btn" data-action="generate-headshot" data-id="${c.id}">Generate Headshot</button>
+              <button class="btn warn" data-action="delete-character" data-id="${c.id}">Delete</button>
+            </div>
+          </div>
+        `).join("");
+
+        return `
+          <div class="stack">
+            <div class="card">
+              <h3>Add Character</h3>
+              <div class="row">
+                <div class="field"><label>Name</label><input id="newCharName" placeholder="Luna" /></div>
+                <div class="field"><label>Voice ID</label><input id="newCharVoice" placeholder="ElevenLabs voice id" /></div>
+              </div>
+              <div class="field"><label>Visual Description</label><textarea id="newCharDesc" placeholder="A bright fox with a blue scarf"></textarea></div>
+              <button class="btn ok" data-action="add-character">Add Character</button>
+            </div>
+            ${cards || '<div class="hint">No characters yet.</div>'}
+          </div>
+        `;
+      }
+
+      function dialogueRow(page, line) {
+        const chars = currentCharacters();
+        return `
+          <div class="card" style="background:#fff5de;">
+            <div class="row">
+              <div class="field">
+                <label>Speaker</label>
+                <select id="line-char-${line.id}">
+                  ${chars.map((c) => `<option value="${c.id}" ${c.id === line.character_id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field"><label>Sort</label><input id="line-sort-${line.id}" type="number" value="${line.sort_order || 0}" /></div>
+            </div>
+            <div class="field"><label>Text</label><textarea id="line-text-${line.id}">${esc(line.text || "")}</textarea></div>
+            <div class="actions">
+              <button class="btn" data-action="save-line" data-id="${line.id}">Save Line</button>
+              <button class="btn" data-action="generate-line" data-id="${line.id}">Generate Audio</button>
+              <button class="btn warn" data-action="delete-line" data-id="${line.id}">Delete</button>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderPagesTab() {
+        if (!state.currentStory) return '<div class="hint">Pick a story first.</div>';
+        const pages = currentPages();
+
+        return `
+          <div class="stack">
+            <div class="card">
+              <h3>Add Page</h3>
+              <div class="field"><label>Scene Description</label><textarea id="newPageScene" placeholder="Moonlight falls across the garden path"></textarea></div>
+              <div class="field"><label>Narration</label><textarea id="newPageNarration" placeholder="Luna tiptoed into the moonlit garden..."></textarea></div>
+              <button class="btn ok" data-action="add-page">Add Page</button>
+            </div>
+            ${pages.map((p, idx) => `
+              <div class="card">
+                <h3>Page ${p.page_index + 1}</h3>
+                <div class="row">
+                  <div class="field"><label>Page Index</label><input id="page-index-${p.id}" type="number" value="${p.page_index}" /></div>
+                  <div class="field"><label>Sort</label><input id="page-sort-${p.id}" type="number" value="${p.sort_order || p.page_index}" /></div>
+                </div>
+                <div class="field"><label>Scene Description</label><textarea id="page-scene-${p.id}">${esc(p.scene_description || "")}</textarea></div>
+                <div class="field"><label>Narration</label><textarea id="page-narration-${p.id}">${esc(p.narration_text || "")}</textarea></div>
+                ${p.scene_image_url ? `<img src="${esc(withApi(p.scene_image_url))}" style="width:100%;max-height:220px;object-fit:contain;border-radius:10px;border:1px solid #cfb792;background:#f1dfbc;" />` : ""}
+                <div class="actions">
+                  <button class="btn" data-action="save-page" data-id="${p.id}">Save Page</button>
+                  <button class="btn" data-action="page-up" data-index="${idx}">Move Up</button>
+                  <button class="btn" data-action="page-down" data-index="${idx}">Move Down</button>
+                  <button class="btn" data-action="generate-scene" data-id="${p.id}">Generate Scene</button>
+                  <button class="btn" data-action="generate-narration" data-id="${p.id}">Generate Narration</button>
+                  <button class="btn warn" data-action="delete-page" data-id="${p.id}">Delete</button>
+                </div>
+                <div class="stack" style="margin-top:10px;">
+                  <h3 style="font-size:20px;">Dialogue</h3>
+                  ${(p.dialogue_lines || []).sort((a,b)=>a.sort_order-b.sort_order).map((line) => dialogueRow(p, line)).join("") || '<div class="hint">No dialogue lines yet.</div>'}
+                  <div class="card" style="background:#fff2d4;">
+                    <div class="row">
+                      <div class="field">
+                        <label>Speaker</label>
+                        <select id="new-line-char-${p.id}">
+                          ${currentCharacters().map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}
+                        </select>
+                      </div>
+                      <div class="field"><label>Text</label><textarea id="new-line-text-${p.id}" style="min-height:64px;"></textarea></div>
+                    </div>
+                    <button class="btn" data-action="add-line" data-page-id="${p.id}">Add Dialogue Line</button>
+                  </div>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      function renderMusicTab() {
+        if (!state.currentStory) return '<div class="hint">Pick a story first.</div>';
+        const tracks = currentTracks();
+
+        return `
+          <div class="stack">
+            <div class="card">
+              <h3>Add Music Track</h3>
+              <div class="row">
+                <div class="field"><label>Title</label><input id="newTrackTitle" placeholder="Moonlight Lullaby" /></div>
+                <div class="field"><label>Mood</label><input id="newTrackMood" placeholder="gentle" /></div>
+              </div>
+              <button class="btn ok" data-action="add-track">Add Track</button>
+            </div>
+            ${tracks.map((t) => `
+              <div class="card">
+                <h3>${esc(t.title)}</h3>
+                <div class="row">
+                  <div class="field"><label>Title</label><input id="track-title-${t.id}" value="${esc(t.title)}" /></div>
+                  <div class="field"><label>Mood</label><input id="track-mood-${t.id}" value="${esc(t.mood || "")}" /></div>
+                </div>
+                ${t.audio_url ? `<audio controls src="${esc(withApi(t.audio_url))}" style="width:100%;"></audio>` : ""}
+                <div class="actions">
+                  <button class="btn" data-action="save-track" data-id="${t.id}">Save Track</button>
+                  <button class="btn" data-action="generate-music" data-id="${t.id}">Generate Music</button>
+                  <button class="btn warn" data-action="delete-track" data-id="${t.id}">Delete</button>
+                </div>
+                <div class="stack" style="margin-top:10px;">
+                  ${(t.music_spans || []).map((s) => `
+                    <div class="card" style="background:#fff2d7;">
+                      <div class="row">
+                        <div class="field"><label>Start Page</label><input id="span-start-${s.id}" type="number" value="${s.start_page_index}" /></div>
+                        <div class="field"><label>End Page</label><input id="span-end-${s.id}" type="number" value="${s.end_page_index}" /></div>
+                      </div>
+                      <div class="actions">
+                        <button class="btn" data-action="save-span" data-id="${s.id}">Save Span</button>
+                        <button class="btn warn" data-action="delete-span" data-id="${s.id}">Delete Span</button>
+                      </div>
+                    </div>
+                  `).join("") || '<div class="hint">No spans.</div>'}
+                  <div class="card" style="background:#fff2d7;">
+                    <div class="row">
+                      <div class="field"><label>Start</label><input id="new-span-start-${t.id}" type="number" value="0" /></div>
+                      <div class="field"><label>End</label><input id="new-span-end-${t.id}" type="number" value="1" /></div>
+                    </div>
+                    <button class="btn" data-action="add-span" data-track-id="${t.id}">Add Span</button>
+                  </div>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      async function loadPreviewPack() {
+        if (!state.currentStory) return;
+        state.previewPack = await api(`/api/stories/${encodeURIComponent(state.currentStory.id)}/pack`);
+        renderTabContent();
+      }
+
+      function renderPreviewTab() {
+        if (!state.currentStory) return '<div class="hint">Pick a story first.</div>';
+
+        if (!state.previewPack) {
+          return '<button class="btn ok" data-action="refresh-preview">Load Preview</button>';
+        }
+
+        const pages = state.previewPack.pages || [];
+
+        return `
+          <div class="stack">
+            <div class="actions">
+              <button class="btn ok" data-action="refresh-preview">Refresh Preview</button>
+              <a class="btn" href="${esc(withApi(`/api/stories/${state.currentStory.id}/pack`))}" target="_blank">Open StoryPack JSON</a>
+            </div>
+            ${pages.map((p) => `
+              <div class="preview-page">
+                ${p.scene?.url ? `<img src="${esc(p.scene.url)}" alt="scene" />` : ""}
+                <div style="padding:10px;">
+                  <strong>Page ${p.pageIndex + 1}</strong>
+                  <div>${esc(p.narration?.text || "")}</div>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      }
+
+      function renderTabContent() {
+        const root = $("tabContent");
+        if (state.currentTab === "story") root.innerHTML = renderStoryTab();
+        if (state.currentTab === "cast") root.innerHTML = renderCastTab();
+        if (state.currentTab === "pages") root.innerHTML = renderPagesTab();
+        if (state.currentTab === "music") root.innerHTML = renderMusicTab();
+        if (state.currentTab === "preview") root.innerHTML = renderPreviewTab();
+      }
+
+      function renderJobs() {
+        const root = $("queueList");
+        if (!state.currentStory) {
+          root.innerHTML = '<div class="hint">Pick a story first.</div>';
+          return;
+        }
+
+        if (!state.jobs.length) {
+          root.innerHTML = '<div class="hint">No jobs yet.</div>';
+          return;
+        }
+
+        root.innerHTML = state.jobs.map((job) => {
+          const status = job.status || "pending";
+          return `
+            <div class="queue-item job-${esc(status)}">
+              <div><strong>${esc(job.job_type)}</strong> • ${esc(status)}</div>
+              <div class="meta">target: ${esc(job.target_id || "n/a")}</div>
+              ${job.error ? `<div style="color:#872d1a;">${esc(job.error)}</div>` : ""}
+            </div>
+          `;
+        }).join("");
+      }
+
+      async function reorderPages(index, direction) {
+        const pages = currentPages();
+        const next = pages.slice();
+        const swapWith = direction === "up" ? index - 1 : index + 1;
+        if (swapWith < 0 || swapWith >= next.length) return;
+        [next[index], next[swapWith]] = [next[swapWith], next[index]];
+        await push("reorder_pages", { page_ids: next.map((p) => p.id) });
+      }
+
+      document.body.addEventListener("click", async (event) => {
+        const node = event.target.closest("[data-action]");
+        if (!node) return;
+        const action = node.dataset.action;
+
+        try {
+          if (action === "reload-stories") await loadStories();
+          if (action === "disconnect") disconnectChannel();
+          if (action === "create-story") await createStory();
+          if (action === "pick-story") await selectStory(node.dataset.storyId);
+          if (action === "switch-tab") {
+            state.currentTab = node.dataset.tab;
+            renderTabs();
+            if (state.currentTab === "preview") await loadPreviewPack();
+            renderTabContent();
+          }
+          if (!state.currentStory) return;
+
+          if (action === "save-story") {
+            await push("update_story", {
+              title: $("storyTitle").value,
+              slug: $("storySlug").value,
+              art_style: $("storyStyle").value
+            });
+          }
+
+          if (action === "add-character") {
+            await push("add_character", {
+              name: $("newCharName").value,
+              visual_description: $("newCharDesc").value,
+              voice_id: $("newCharVoice").value,
+              voice_provider: "elevenlabs"
+            });
+          }
+
+          if (action === "save-character") {
+            const id = node.dataset.id;
+            await push("update_character", {
+              id,
+              name: $(`char-name-${id}`).value,
+              visual_description: $(`char-desc-${id}`).value,
+              voice_id: $(`char-voice-${id}`).value,
+              voice_provider: "elevenlabs"
+            });
+          }
+
+          if (action === "delete-character") await push("delete_character", { id: node.dataset.id });
+          if (action === "generate-headshot") await push("generate_headshot", { character_id: node.dataset.id });
+
+          if (action === "add-page") {
+            await push("add_page", {
+              scene_description: $("newPageScene").value,
+              narration_text: $("newPageNarration").value
+            });
+          }
+
+          if (action === "save-page") {
+            const id = node.dataset.id;
+            await push("update_page", {
+              id,
+              page_index: Number($(`page-index-${id}`).value),
+              sort_order: Number($(`page-sort-${id}`).value),
+              scene_description: $(`page-scene-${id}`).value,
+              narration_text: $(`page-narration-${id}`).value
+            });
+          }
+
+          if (action === "delete-page") await push("delete_page", { id: node.dataset.id });
+          if (action === "page-up") await reorderPages(Number(node.dataset.index), "up");
+          if (action === "page-down") await reorderPages(Number(node.dataset.index), "down");
+          if (action === "generate-scene") await push("generate_scene", { page_id: node.dataset.id });
+          if (action === "generate-narration") await push("generate_narration_audio", { page_id: node.dataset.id });
+
+          if (action === "add-line") {
+            const pageId = node.dataset.pageId;
+            await push("add_dialogue_line", {
+              page_id: pageId,
+              character_id: $(`new-line-char-${pageId}`).value,
+              text: $(`new-line-text-${pageId}`).value
+            });
+          }
+
+          if (action === "save-line") {
+            const id = node.dataset.id;
+            await push("update_dialogue_line", {
+              id,
+              character_id: $(`line-char-${id}`).value,
+              sort_order: Number($(`line-sort-${id}`).value),
+              text: $(`line-text-${id}`).value
+            });
+          }
+
+          if (action === "delete-line") await push("delete_dialogue_line", { id: node.dataset.id });
+          if (action === "generate-line") await push("generate_dialogue_audio", { dialogue_line_id: node.dataset.id });
+
+          if (action === "add-track") {
+            await push("add_music_track", {
+              title: $("newTrackTitle").value,
+              mood: $("newTrackMood").value
+            });
+          }
+
+          if (action === "save-track") {
+            const id = node.dataset.id;
+            await push("update_music_track", {
+              id,
+              title: $(`track-title-${id}`).value,
+              mood: $(`track-mood-${id}`).value
+            });
+          }
+
+          if (action === "delete-track") await push("delete_music_track", { id: node.dataset.id });
+          if (action === "generate-music") await push("generate_music", { track_id: node.dataset.id });
+
+          if (action === "add-span") {
+            const trackId = node.dataset.trackId;
+            await push("add_music_span", {
+              track_id: trackId,
+              start_page_index: Number($(`new-span-start-${trackId}`).value),
+              end_page_index: Number($(`new-span-end-${trackId}`).value),
+              loop: true
+            });
+          }
+
+          if (action === "save-span") {
+            const id = node.dataset.id;
+            await push("update_music_span", {
+              id,
+              start_page_index: Number($(`span-start-${id}`).value),
+              end_page_index: Number($(`span-end-${id}`).value),
+              loop: true
+            });
+          }
+
+          if (action === "delete-span") await push("delete_music_span", { id: node.dataset.id });
+
+          if (action === "generate-all-scenes") await push("generate_all_scenes", {});
+          if (action === "generate-all-audio") await push("generate_all_audio", {});
+          if (action === "generate-all") await push("generate_all", {});
+
+          if (action === "deploy-story") {
+            const subdomain = $("deploySubdomain").value.trim() || (state.currentStory.slug || "story");
+            await push("deploy_story", { subdomain });
+          }
+
+          if (action === "refresh-preview") await loadPreviewPack();
+
+          await Promise.all([loadStoryFull(), loadJobs()]);
+          if (state.currentTab === "preview") await loadPreviewPack();
+        } catch (err) {
+          setStatus(`Action error: ${err.message}`, false);
+        }
+      });
+
+      (async function boot() {
+        $("apiBase").value = state.apiBase;
+        $("apiBase").addEventListener("change", () => {
+          state.apiBase = $("apiBase").value.trim().replace(/\/$/, "");
+        });
+
+        renderTabs();
+        renderStoryList();
+        renderTabContent();
+        renderJobs();
+        await loadStories();
+      })();
     </script>
   </body>
 </html>
