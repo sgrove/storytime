@@ -312,6 +312,7 @@
         timingsCache: new Map(),
         currentHighlight: null,
         activeMusicUrl: null,
+        activeMusicLoop: true,
         musicDeck: "a",
         narrateToken: 0,
         lastPointerAt: 0,
@@ -659,16 +660,50 @@
         const spans = music.spans || [];
         const match = spans.find((span) => pageIndex >= span.startPageIndex && pageIndex <= span.endPageIndex);
         if (!match) return null;
-        return (music.tracks || []).find((track) => track.id === match.trackId) || null;
+        const track = (music.tracks || []).find((entry) => entry.id === match.trackId);
+        if (!track) return null;
+
+        return { track, loop: match.loop !== false };
       }
 
-      async function crossfadeTo(nextUrl) {
-        if (!nextUrl || nextUrl === state.activeMusicUrl) return;
+      function activeMusicElement() {
+        return state.musicDeck === "a" ? $("musicA") : $("musicB");
+      }
+
+      async function fadeOutMusic() {
+        if (!state.activeMusicUrl) return;
+
+        const current = activeMusicElement();
+        const steps = 12;
+        const start = Number(current.volume || 0);
+
+        for (let i = steps; i >= 0; i -= 1) {
+          current.volume = (start * i) / steps;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+
+        current.pause();
+        current.currentTime = 0;
+        current.src = "";
+        state.activeMusicUrl = null;
+      }
+
+      async function crossfadeTo(nextUrl, loop) {
+        if (!nextUrl) return;
+
+        if (nextUrl === state.activeMusicUrl) {
+          if (typeof loop === "boolean" && state.activeMusicLoop !== loop) {
+            activeMusicElement().loop = loop;
+            state.activeMusicLoop = loop;
+          }
+          return;
+        }
 
         const current = state.musicDeck === "a" ? $("musicA") : $("musicB");
         const incoming = state.musicDeck === "a" ? $("musicB") : $("musicA");
         state.musicDeck = state.musicDeck === "a" ? "b" : "a";
 
+        incoming.loop = loop !== false;
         incoming.src = nextUrl;
         incoming.volume = 0;
         await incoming.play().catch(() => {});
@@ -685,12 +720,18 @@
         current.currentTime = 0;
         current.src = "";
         state.activeMusicUrl = nextUrl;
+        state.activeMusicLoop = incoming.loop;
       }
 
       function updateMusicForPage() {
-        const track = pageTrackForIndex(state.pageIndex);
-        if (!track?.audioUrl) return;
-        crossfadeTo(track.audioUrl).catch(() => {});
+        const assignment = pageTrackForIndex(state.pageIndex);
+
+        if (!assignment || !assignment.track?.audioUrl) {
+          fadeOutMusic().catch(() => {});
+          return;
+        }
+
+        crossfadeTo(assignment.track.audioUrl, assignment.loop).catch(() => {});
       }
 
       function nextPage(opts = {}) {

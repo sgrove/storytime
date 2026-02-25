@@ -18,6 +18,7 @@
 - [x] Story status transitions now enforce `draft/generating/ready/deployed` flow for generation/deploy events.
 - [x] Deploy input validation rejects invalid subdomain and missing-content deploy attempts before enqueue.
 - [x] Reader supports navigation, narration/dialogue playback, explicit page dialogue and narration+dialogue sequence controls, active speaker highlighting, word highlighting, narrate/read-alone mode, and music crossfade/volume.
+- [x] Reader music playback now respects span `loop` behavior and fades out when moving to pages outside any music span.
 - [x] Editor now supports ElevenLabs voice-picking via `/api/voices/elevenlabs`, one-click `Generate Dialogue + Voices`, inline dialogue audio playback, and job/progress indicators.
 - [x] Generation queue diagnostics now include dialogue_tts-specific context (speaker/page/text preview), queue position, age, Oban state/attempt details, and retry timing.
 - [x] FR-012 broadcast payload minimum-key contract is now explicitly declared in `StoryChannel.required_broadcast_payload_keys/0` and regression-tested.
