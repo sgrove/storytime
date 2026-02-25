@@ -24,6 +24,8 @@ defmodule Storytime.Stories do
   @type job_type ::
           :headshot | :scene | :dialogue | :dialogue_tts | :narration_tts | :music | :deploy
   @active_generation_statuses [:pending, :running]
+  @terminal_generation_statuses [:completed, :failed]
+  @max_prune_limit 2_000
 
   def repo_running?, do: Process.whereis(Storytime.Repo) != nil
 
@@ -104,6 +106,62 @@ defmodule Storytime.Stories do
         limit: 1_000
       )
     )
+  end
+
+  def prune_generation_history(story_id, opts \\ %{}) do
+    with {:ok, options} <- normalize_prune_options(opts) do
+      cutoff = DateTime.add(DateTime.utc_now(), -options.older_than_seconds, :second)
+
+      generation_ids =
+        Repo.all(
+          from(j in GenerationJob,
+            where:
+              j.story_id == ^story_id and j.status in ^options.statuses and j.updated_at <= ^cutoff,
+            order_by: [asc: j.updated_at],
+            limit: ^options.limit,
+            select: j.id
+          )
+        )
+
+      generation_deleted =
+        case generation_ids do
+          [] -> 0
+          ids -> Repo.delete_all(from(j in GenerationJob, where: j.id in ^ids)) |> elem(0)
+        end
+
+      oban_states = oban_states_for_statuses(options.statuses)
+
+      oban_ids =
+        if oban_states == [] do
+          []
+        else
+          Repo.all(
+            from(j in Oban.Job,
+              where:
+                fragment("?->>? = ?", j.args, "story_id", ^story_id) and j.state in ^oban_states and
+                  j.inserted_at <= ^cutoff,
+              order_by: [asc: j.inserted_at],
+              limit: ^options.limit,
+              select: j.id
+            )
+          )
+        end
+
+      oban_deleted =
+        case oban_ids do
+          [] -> 0
+          ids -> Repo.delete_all(from(j in Oban.Job, where: j.id in ^ids)) |> elem(0)
+        end
+
+      {:ok,
+       %{
+         generation_jobs_deleted: generation_deleted,
+         oban_jobs_deleted: oban_deleted,
+         statuses: Enum.map(options.statuses, &to_string/1),
+         older_than_seconds: options.older_than_seconds,
+         limit: options.limit
+       }}
+    end
   end
 
   def create_character(story_id, attrs) do
@@ -681,5 +739,80 @@ defmodule Storytime.Stories do
       "error" -> :error
       _ -> nil
     end
+  end
+
+  defp normalize_prune_options(opts) do
+    opts = opts || %{}
+
+    with {:ok, statuses} <- normalize_prune_statuses(Map.get(opts, "statuses", Map.get(opts, :statuses))),
+         {:ok, older_than_seconds} <-
+           normalize_non_negative_integer(
+             Map.get(opts, "older_than_seconds", Map.get(opts, :older_than_seconds, 300)),
+             300
+           ),
+         {:ok, limit} <-
+           normalize_bounded_limit(Map.get(opts, "limit", Map.get(opts, :limit, 500)), 500) do
+      {:ok, %{statuses: statuses, older_than_seconds: older_than_seconds, limit: limit}}
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp normalize_prune_statuses(nil), do: {:ok, @terminal_generation_statuses}
+
+  defp normalize_prune_statuses(value) do
+    value
+    |> List.wrap()
+    |> Enum.map(&normalize_status/1)
+    |> Enum.filter(&(&1 in @terminal_generation_statuses))
+    |> Enum.uniq()
+    |> case do
+      [] -> {:error, :invalid_prune_statuses}
+      statuses -> {:ok, statuses}
+    end
+  end
+
+  defp normalize_status(value) when is_atom(value), do: value
+
+  defp normalize_status(value) when is_binary(value) do
+    case String.trim(value) do
+      "completed" -> :completed
+      "failed" -> :failed
+      _ -> nil
+    end
+  end
+
+  defp normalize_status(_value), do: nil
+
+  defp normalize_non_negative_integer(value, _default) when is_integer(value) and value >= 0,
+    do: {:ok, value}
+
+  defp normalize_non_negative_integer(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} when int >= 0 -> {:ok, int}
+      _ -> {:ok, default}
+    end
+  end
+
+  defp normalize_non_negative_integer(_value, default), do: {:ok, default}
+
+  defp normalize_bounded_limit(value, default) do
+    with {:ok, parsed} <- normalize_non_negative_integer(value, default),
+         true <- parsed > 0 or {:error, :invalid_prune_limit} do
+      {:ok, min(parsed, @max_prune_limit)}
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp oban_states_for_statuses(statuses) do
+    states =
+      Enum.flat_map(statuses, fn
+        :completed -> ["completed"]
+        :failed -> ["discarded", "cancelled", "canceled"]
+        _ -> []
+      end)
+
+    Enum.uniq(states)
   end
 end

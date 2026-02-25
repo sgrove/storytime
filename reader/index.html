@@ -336,7 +336,11 @@
           isHost: true,
           followHost: true,
           heartbeat: null,
+          staleSweep: null,
           pointerMoveHandler: null,
+          pointerLeaveHandler: null,
+          pageSyncSeq: 0,
+          lastAppliedPageSync: {},
           teardown: []
         }
       };
@@ -863,12 +867,18 @@
           }
           if (action === "toggle-host") {
             state.collab.isHost = !state.collab.isHost;
+            if (state.collab.isHost) {
+              state.collab.followHost = true;
+            }
             sendPresence();
             sendPageSync();
             renderCollab();
           }
           if (action === "toggle-follow") {
             state.collab.followHost = !state.collab.followHost;
+            if (state.collab.followHost) {
+              maybeFollowHost();
+            }
             renderCollab();
           }
         });
@@ -900,10 +910,26 @@
         return Math.max(0, Math.min(pageCount - 1, Number(index) || 0));
       }
 
+      function clampUnit(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return 0;
+        return Math.max(0, Math.min(1, number));
+      }
+
+      function freshParticipants(maxAgeMs = 15_000) {
+        const now = Date.now();
+        return [...state.participants.values()].filter((peer) => now - (peer.seenAt || 0) <= maxAgeMs);
+      }
+
       function teardownCollab() {
         if (state.collab.heartbeat) {
           clearInterval(state.collab.heartbeat);
           state.collab.heartbeat = null;
+        }
+
+        if (state.collab.staleSweep) {
+          clearInterval(state.collab.staleSweep);
+          state.collab.staleSweep = null;
         }
 
         for (const stop of state.collab.teardown) {
@@ -915,10 +941,17 @@
           state.collab.pointerMoveHandler = null;
         }
 
+        if (state.collab.pointerLeaveHandler) {
+          $("stage").removeEventListener("pointerleave", state.collab.pointerLeaveHandler);
+          state.collab.pointerLeaveHandler = null;
+        }
+
         state.collab.teardown = [];
         state.collab.room = null;
         state.collab.db = null;
         state.collab.backend = "none";
+        state.collab.pageSyncSeq = 0;
+        state.collab.lastAppliedPageSync = {};
       }
 
       async function initCollab() {
@@ -931,6 +964,11 @@
           sendPresence();
         }, 1800);
 
+        state.collab.staleSweep = setInterval(() => {
+          renderCollab();
+          renderCursors();
+        }, 2000);
+
         state.collab.pointerMoveHandler = (ev) => {
           const now = Date.now();
           if (now - state.lastPointerAt < 80) return;
@@ -938,17 +976,29 @@
 
           const rect = $("stage").getBoundingClientRect();
           const cursor = {
-            x: (ev.clientX - rect.left) / rect.width,
-            y: (ev.clientY - rect.top) / rect.height
+            x: clampUnit((ev.clientX - rect.left) / rect.width),
+            y: clampUnit((ev.clientY - rect.top) / rect.height)
           };
           sendPresence(cursor);
         };
 
         $("stage").addEventListener("pointermove", state.collab.pointerMoveHandler, { passive: true });
+        state.collab.pointerLeaveHandler = () => {
+          sendPresence(null);
+        };
+        $("stage").addEventListener("pointerleave", state.collab.pointerLeaveHandler, {
+          passive: true
+        });
+
         state.collab.teardown.push(() => {
           if (state.collab.pointerMoveHandler) {
             $("stage").removeEventListener("pointermove", state.collab.pointerMoveHandler);
             state.collab.pointerMoveHandler = null;
+          }
+
+          if (state.collab.pointerLeaveHandler) {
+            $("stage").removeEventListener("pointerleave", state.collab.pointerLeaveHandler);
+            state.collab.pointerLeaveHandler = null;
           }
         });
 
@@ -1026,7 +1076,9 @@
             name: peer?.name || `Reader ${peerId.slice(-4)}`,
             pageIndex: clampPageIndex(peer?.pageIndex),
             host: !!peer?.host,
-            cursor: peer?.cursor || null,
+            cursor: peer?.cursor
+              ? { x: clampUnit(peer.cursor.x), y: clampUnit(peer.cursor.y) }
+              : null,
             seenAt: Date.now()
           });
         });
@@ -1045,7 +1097,9 @@
             name: msg.name || "Reader",
             pageIndex: clampPageIndex(msg.pageIndex),
             host: !!msg.host,
-            cursor: msg.cursor || null,
+            cursor: msg.cursor
+              ? { x: clampUnit(msg.cursor.x), y: clampUnit(msg.cursor.y) }
+              : null,
             seenAt: Date.now()
           });
           maybeFollowHost();
@@ -1055,8 +1109,23 @@
         }
 
         if (msg.type === "page") {
-          if (state.collab.followHost && !state.collab.isHost && msg.host) {
-            state.pageIndex = clampPageIndex(msg.pageIndex);
+          if (!state.collab.followHost || state.collab.isHost || !msg.host) return;
+
+          const chosenHost = activeHostParticipant();
+          if (!chosenHost || chosenHost.id !== msg.from) return;
+
+          const sequence = Number(msg.sync_seq || 0);
+          const previous = Number(state.collab.lastAppliedPageSync[msg.from] || 0);
+
+          if (Number.isFinite(sequence) && sequence > 0 && sequence <= previous) return;
+
+          if (Number.isFinite(sequence) && sequence > 0) {
+            state.collab.lastAppliedPageSync[msg.from] = sequence;
+          }
+
+          const nextIndex = clampPageIndex(msg.pageIndex);
+          if (nextIndex !== state.pageIndex) {
+            state.pageIndex = nextIndex;
             renderPage();
           }
         }
@@ -1084,15 +1153,15 @@
       }
 
       function activeHostParticipant() {
-        const hosts = [...state.participants.values()]
+        const hosts = freshParticipants()
           .filter((participant) => participant.host)
-          .sort((a, b) => (b.seenAt || 0) - (a.seenAt || 0));
+          .sort((a, b) => a.id.localeCompare(b.id));
 
         return hosts[0] || null;
       }
 
       function shouldSelfElectHost() {
-        const peers = [...state.participants.values()].filter((peer) => Date.now() - (peer.seenAt || 0) <= 15_000);
+        const peers = freshParticipants();
         if (!peers.length) return true;
 
         const candidates = [state.identity.id, ...peers.map((peer) => peer.id)].sort();
@@ -1102,12 +1171,15 @@
       function sendPageSync() {
         if (!state.collab.room || !state.collab.isHost) return;
 
+        state.collab.pageSyncSeq += 1;
+
         const payload = {
           type: "page",
           from: state.identity.id,
           name: state.identity.name,
           pageIndex: state.pageIndex,
-          host: state.collab.isHost
+          host: state.collab.isHost,
+          sync_seq: state.collab.pageSyncSeq
         };
 
         state.collab.room.publishTopic("page_sync", payload);
@@ -1120,11 +1192,11 @@
 
       function renderCursors() {
         const layer = $("cursorLayer");
-        const peers = [...state.participants.values()].filter(
+        const peers = freshParticipants().filter(
           (p) => p.cursor && clampPageIndex(p.pageIndex) === state.pageIndex
         );
         layer.innerHTML = peers.map((p) => `
-          <div class="cursor" style="left:${(p.cursor.x || 0) * 100}%;top:${(p.cursor.y || 0) * 100}%;">
+          <div class="cursor" style="left:${clampUnit(p.cursor.x) * 100}%;top:${clampUnit(p.cursor.y) * 100}%;">
             ${esc(p.name)}
           </div>
         `).join("");
@@ -1132,13 +1204,14 @@
 
       function renderCollab() {
         const now = Date.now();
+
         for (const [id, peer] of state.participants.entries()) {
           if (now - (peer.seenAt || 0) > 15_000) state.participants.delete(id);
         }
 
         maybeFollowHost();
 
-        const peers = [...state.participants.values()];
+        const peers = freshParticipants();
         const host = activeHostParticipant();
         const freshnessLabel = (participant) => {
           const delta = Math.max(0, Math.floor((now - (participant.seenAt || now)) / 1000));

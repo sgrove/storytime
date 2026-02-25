@@ -337,6 +337,8 @@
             <button class="btn flat" data-action="queue-filter" data-filter="failed">Failed</button>
             <button class="btn flat" data-action="queue-latest" id="queueLatestToggle">Latest per target</button>
             <button class="btn flat" data-action="retry-visible-failed" id="retryVisibleFailed">Retry Failed Visible</button>
+            <input id="pruneMinutes" type="number" min="0" value="10" style="max-width:90px;" title="Prune terminal jobs older than this many minutes" />
+            <button class="btn flat" data-action="prune-history" id="pruneHistory">Prune History</button>
             <input id="queueSearch" placeholder="Filter text (job type / speaker / target)" style="max-width:280px;" />
             <button class="btn flat" data-action="clear-events">Clear Events</button>
           </div>
@@ -551,6 +553,7 @@
           "music_track_added","music_track_updated","music_track_deleted",
           "music_span_added","music_span_updated","music_span_deleted",
           "generation_started","generation_progress","generation_completed","generation_failed",
+          "generation_history_pruned",
           "deploy_started","deploy_completed","deploy_failed"
         ].forEach((eventName) => {
           state.channel.on(eventName, async (payload) => {
@@ -1132,6 +1135,8 @@
           summary.textContent = "";
           const retryVisibleFailed = $("retryVisibleFailed");
           if (retryVisibleFailed) retryVisibleFailed.disabled = true;
+          const pruneHistory = $("pruneHistory");
+          if (pruneHistory) pruneHistory.disabled = true;
           renderEventFeed();
           return;
         }
@@ -1141,6 +1146,8 @@
           summary.textContent = "No jobs tracked yet.";
           const retryVisibleFailed = $("retryVisibleFailed");
           if (retryVisibleFailed) retryVisibleFailed.disabled = true;
+          const pruneHistory = $("pruneHistory");
+          if (pruneHistory) pruneHistory.disabled = false;
           renderEventFeed();
           return;
         }
@@ -1180,6 +1187,9 @@
           retryVisibleFailed.textContent =
             retryableFailedCount > 0 ? `Retry Failed Visible (${retryableFailedCount})` : "Retry Failed Visible";
         }
+
+        const pruneHistory = $("pruneHistory");
+        if (pruneHistory) pruneHistory.disabled = false;
 
         if (!filteredJobs.length) {
           root.innerHTML = '<div class="hint">No jobs match the current filter.</div>';
@@ -1255,6 +1265,12 @@
 
         if (eventName === "deploy_failed") {
           setStatus(`Deploy failed: ${payload.error || "unknown"}`, false);
+        }
+
+        if (eventName === "generation_history_pruned") {
+          const removed =
+            Number(payload.generation_jobs_deleted || 0) + Number(payload.oban_jobs_deleted || 0);
+          setStatus(`Queue history pruned: ${removed} rows removed.`, true);
         }
       }
 
@@ -1503,6 +1519,23 @@
               await Promise.all([loadStoryFull(), loadJobs()]);
               if (state.currentTab === "preview") await loadPreviewPack();
             }
+          }
+          if (action === "prune-history") {
+            refreshAfterAction = false;
+            const minutes = Number($("pruneMinutes")?.value || 10);
+            const olderThanSeconds = Number.isFinite(minutes) && minutes >= 0 ? Math.floor(minutes * 60) : 600;
+
+            const response = await push("prune_generation_jobs", {
+              statuses: ["failed", "completed"],
+              older_than_seconds: olderThanSeconds,
+              limit: 1000
+            });
+
+            const removed =
+              Number(response?.generation_jobs_deleted || 0) + Number(response?.oban_jobs_deleted || 0);
+            setStatus(`Pruned ${removed} historical jobs.`, true);
+            await Promise.all([loadStoryFull(), loadJobs()]);
+            renderJobs();
           }
           if (action === "clear-events") {
             refreshAfterAction = false;

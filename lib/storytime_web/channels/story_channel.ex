@@ -25,6 +25,7 @@ defmodule StorytimeWeb.StoryChannel do
     "generate_all_audio",
     "generate_music",
     "retry_generation",
+    "prune_generation_jobs",
     "generate_all",
     "deploy_story"
   ]
@@ -74,7 +75,15 @@ defmodule StorytimeWeb.StoryChannel do
     "music_span_updated" => ["span"],
     "music_span_deleted" => ["id", "span"],
     "generation_started" => ["story_id", "job_type", "target_id", "job_id"],
-    "deploy_started" => ["story_id", "job_id"]
+    "deploy_started" => ["story_id", "job_id"],
+    "generation_history_pruned" => [
+      "story_id",
+      "generation_jobs_deleted",
+      "oban_jobs_deleted",
+      "statuses",
+      "older_than_seconds",
+      "limit"
+    ]
   }
 
   def required_client_events, do: @required_client_events
@@ -339,6 +348,16 @@ defmodule StorytimeWeb.StoryChannel do
   end
 
   @impl true
+  def handle_in("prune_generation_jobs", payload, socket) do
+    with {:ok, result} <- Stories.prune_generation_history(socket.assigns.story_id, payload || %{}) do
+      broadcast!(socket, "generation_history_pruned", Map.put(result, :story_id, socket.assigns.story_id))
+      {:reply, {:ok, result}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, normalize_error(reason)}, socket}
+    end
+  end
+
+  @impl true
   def handle_in("deploy_story", payload, socket) do
     with {:ok, subdomain} <- required_field(payload, "subdomain"),
          {:ok, job} <- Generation.enqueue_deploy(socket.assigns.story_id, subdomain, payload) do
@@ -389,6 +408,8 @@ defmodule StorytimeWeb.StoryChannel do
   defp normalize_error(:story_missing_content), do: %{error: "story_missing_content"}
   defp normalize_error(:nothing_to_generate), do: %{error: "nothing_to_generate"}
   defp normalize_error(:retry_not_supported), do: %{error: "retry_not_supported"}
+  defp normalize_error(:invalid_prune_statuses), do: %{error: "invalid_prune_statuses"}
+  defp normalize_error(:invalid_prune_limit), do: %{error: "invalid_prune_limit"}
 
   defp normalize_error(%Ecto.Changeset{} = changeset) do
     %{error: "validation_failed", details: traverse_errors(changeset)}

@@ -136,4 +136,9 @@ defmodule StorytimeWeb.StoryChannelContractTest do
     declared = StoryChannel.required_client_events() |> MapSet.new()
     assert MapSet.member?(declared, "retry_generation")
   end
+
+  test "extended client event for generation history pruning is declared" do
+    declared = StoryChannel.required_client_events() |> MapSet.new()
+    assert MapSet.member?(declared, "prune_generation_jobs")
+  end
 end
