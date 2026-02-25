@@ -20,7 +20,8 @@ defmodule Storytime.MixProject do
 
   defp deps do
     [
-      {:plug_cowboy, "~> 2.7"}
+      {:plug_cowboy, "~> 2.7"},
+      {:jason, "~> 1.4"}
     ]
   end
 end

@@ -5,6 +5,23 @@ defmodule Storytime.Router do
   plug :match
   plug :dispatch
 
+  get "/api/version" do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, ~s({"service":"storytime-api","phase":"bootstrap"}))
+  end
+
+  get "/api/stories/:id/pack" do
+    payload =
+      id
+      |> Storytime.StoryPack.build()
+      |> Jason.encode!()
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, payload)
+  end
+
   get "/health" do
     send_resp(conn, 200, "ok")
   end
