@@ -165,4 +165,73 @@ defmodule Storytime.JobDiagnosticsTest do
     assert job.active_detail ==
              "Worker exhausted retries. Retry this job to enqueue a fresh attempt."
   end
+
+  test "freezes age for completed jobs" do
+    now = DateTime.from_unix!(1_762_094_200)
+    inserted_at = DateTime.add(now, -120, :second)
+    completed_at = DateTime.add(now, -45, :second)
+
+    jobs = [
+      %{
+        id: "job-completed",
+        job_type: :scene,
+        target_id: "page-1",
+        status: :completed,
+        error: nil,
+        inserted_at: inserted_at,
+        updated_at: completed_at
+      }
+    ]
+
+    [job_now] = JobDiagnostics.enrich(jobs, nil, [], now)
+    [job_later] = JobDiagnostics.enrich(jobs, nil, [], DateTime.add(now, 30, :second))
+
+    assert job_now.status == "completed"
+    assert job_now.age_seconds == 75
+    assert job_later.age_seconds == 75
+  end
+
+  test "freezes age for failed discarded jobs" do
+    now = DateTime.from_unix!(1_762_094_200)
+    inserted_at = DateTime.add(now, -140, :second)
+    discarded_at = DateTime.add(now, -20, :second)
+
+    jobs = [
+      %{
+        id: "job-failed",
+        job_type: :dialogue_tts,
+        target_id: "line-9",
+        status: :pending,
+        error: nil,
+        inserted_at: inserted_at,
+        updated_at: inserted_at
+      }
+    ]
+
+    oban_jobs = [
+      %{
+        id: 101,
+        args: %{"generation_job_id" => "job-failed", "story_id" => "story-1"},
+        state: "discarded",
+        queue: "generation",
+        worker: "Storytime.Workers.TtsGenWorker",
+        attempt: 6,
+        max_attempts: 6,
+        inserted_at: inserted_at,
+        scheduled_at: inserted_at,
+        attempted_at: discarded_at,
+        completed_at: nil,
+        cancelled_at: nil,
+        discarded_at: discarded_at,
+        errors: [%{"error" => "final provider failure"}]
+      }
+    ]
+
+    [job_now] = JobDiagnostics.enrich(jobs, nil, oban_jobs, now)
+    [job_later] = JobDiagnostics.enrich(jobs, nil, oban_jobs, DateTime.add(now, 45, :second))
+
+    assert job_now.status == "failed"
+    assert job_now.age_seconds == 120
+    assert job_later.age_seconds == 120
+  end
 end

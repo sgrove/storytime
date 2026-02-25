@@ -11,16 +11,17 @@ defmodule Storytime.JobDiagnostics do
 
     Enum.map(generation_jobs, fn job ->
       oban_job = Map.get(oban_by_generation_job_id, job.id)
+      status = effective_status(job.status, oban_job)
 
       base = %{
         id: job.id,
         job_type: to_string(job.job_type),
         target_id: job.target_id,
-        status: effective_status(job.status, oban_job),
+        status: status,
         error: job.error,
         inserted_at: job.inserted_at,
         updated_at: job.updated_at,
-        age_seconds: elapsed_seconds(job.inserted_at, now),
+        age_seconds: age_seconds(job, oban_job, status, now),
         updated_seconds_ago: elapsed_seconds(job.updated_at, now),
         queue_position: queue_position(job, pending_positions),
         active_detail: active_detail(job, oban_job, pending_positions, now)
@@ -262,6 +263,37 @@ defmodule Storytime.JobDiagnostics do
 
   defp elapsed_seconds(datetime, now) do
     DateTime.diff(now, datetime, :second)
+  end
+
+  defp age_seconds(%{inserted_at: nil}, _oban_job, _status, _now), do: nil
+
+  defp age_seconds(%{inserted_at: inserted_at} = job, oban_job, status, now) do
+    reference =
+      if status in ["completed", "failed"] do
+        terminal_reference(job, oban_job) || now
+      else
+        now
+      end
+
+    max(DateTime.diff(reference, inserted_at, :second), 0)
+  end
+
+  defp terminal_reference(job, oban_job) do
+    [
+      job.updated_at,
+      oban_job && oban_job.completed_at,
+      oban_job && oban_job.discarded_at,
+      oban_job && oban_job.cancelled_at,
+      oban_job && oban_job.attempted_at
+    ]
+    |> Enum.filter(&match?(%DateTime{}, &1))
+    |> case do
+      [] ->
+        nil
+
+      candidates ->
+        Enum.max_by(candidates, &DateTime.to_unix(&1, :microsecond))
+    end
   end
 
   defp effective_status(:pending, %{state: state})
