@@ -568,6 +568,66 @@
 
       .hint { font-size: 12px; opacity: 0.75; }
 
+      .readiness-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 6px 0 10px;
+      }
+
+      .readiness-pill {
+        border: 1px solid #bfa67f;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        background: #fff3d8;
+      }
+
+      .readiness-pill.ok {
+        border-color: #3d6b4f;
+        background: #e6f2e8;
+        color: #21422d;
+      }
+
+      .readiness-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .readiness-item {
+        border: 1px solid #c9b18a;
+        border-left: 4px solid #b35e3f;
+        border-radius: 8px;
+        background: #fff7e9;
+        padding: 8px 10px;
+      }
+
+      .readiness-item .title {
+        font-size: 13px;
+        font-weight: 700;
+        color: #4b2e0d;
+      }
+
+      .readiness-item .detail {
+        font-size: 12px;
+        opacity: 0.82;
+        margin-top: 2px;
+      }
+
+      .readiness-item .actions {
+        margin-top: 6px;
+      }
+
+      .asset-callout {
+        border: 1px solid #c99a3d;
+        border-left: 4px solid #b57a1a;
+        border-radius: 8px;
+        background: #fff0cf;
+        padding: 8px 10px;
+        margin-bottom: 10px;
+      }
+
       .preview-page {
         border: 1px solid #c9ad80;
         border-radius: 14px;
@@ -658,9 +718,11 @@
             <button class="btn" id="btnGenerateAllDialogue" data-action="generate-all-dialogue">Generate All Dialogue + Voices</button>
             <button class="btn ok" id="btnGenerateAll" data-action="generate-all">Generate All</button>
             <input id="deploySubdomain" placeholder="deploy-subdomain" style="max-width:220px;" />
-            <button class="btn warn" data-action="deploy-story">Deploy</button>
+            <button class="btn flat" id="btnDeployPreflight" data-action="deploy-preflight">Check</button>
+            <button class="btn warn" id="btnDeployStory" data-action="deploy-story">Deploy</button>
           </div>
           <div class="hint" id="dialogueBatchStatus" style="margin-bottom: 10px;"></div>
+          <div class="hint" id="deployPreflightStatus" style="margin-bottom: 10px;"></div>
           <div id="tabContent"></div>
         </div>
       </section>
@@ -722,7 +784,9 @@
         newTrackTags: [],
         musicTagSuggestScope: null,
         musicTagSuggestItems: [],
-        musicTagSuggestActive: -1
+        musicTagSuggestActive: -1,
+        readiness: null,
+        deployPreflight: null
       };
 
       const $ = (id) => document.getElementById(id);
@@ -796,6 +860,7 @@
             const fresh = state.stories.find((s) => s.id === state.currentStory.id);
             if (!fresh) {
               state.currentStory = null;
+              state.readiness = null;
               disconnectChannel();
             }
           }
@@ -918,20 +983,54 @@
       async function selectStory(storyId) {
         const payload = await api(`/api/stories/${encodeURIComponent(storyId)}`);
         state.currentStory = payload.story;
+        state.readiness = null;
         state.previewPack = null;
+        state.deployPreflight = null;
+
+        const deployInput = $("deploySubdomain");
+        if (deployInput) deployInput.value = state.currentStory.slug || "";
+
         renderStoryList();
         renderTabs();
         renderTabContent();
+        renderGlobalActions();
         await connectChannel();
-        await loadJobs();
+        await Promise.all([loadJobs(), loadReadiness()]);
+        renderTabContent();
         if (!state.voiceOptions.length) await loadVoices();
         if (!state.musicTagOptions.length) await loadMusicTags();
       }
 
-      async function loadStoryFull() {
+      async function loadReadiness() {
+        if (!state.currentStory) {
+          state.readiness = null;
+          return;
+        }
+
+        try {
+          state.readiness = await api(`/api/stories/${encodeURIComponent(state.currentStory.id)}/readiness`);
+        } catch (err) {
+          state.readiness = {
+            ready: false,
+            blocking_count: 0,
+            auto_fixable_count: 0,
+            manual_count: 0,
+            warning_count: 0,
+            items: [],
+            error: err.message || "readiness_unavailable"
+          };
+        }
+      }
+
+      async function loadStoryFull(options = {}) {
         if (!state.currentStory) return;
         const payload = await api(`/api/stories/${encodeURIComponent(state.currentStory.id)}`);
         state.currentStory = payload.story;
+
+        const deployInput = $("deploySubdomain");
+        if (deployInput && !deployInput.value.trim()) deployInput.value = state.currentStory.slug || "";
+
+        if (options.readiness !== false) await loadReadiness();
         renderStoryList();
         renderTabContent();
         renderGlobalActions();
@@ -1476,19 +1575,191 @@
         return `Voice jobs • pending ${counts.pending} • running ${counts.running} • completed ${counts.completed} • failed ${counts.failed}`;
       }
 
+      function readinessItems() {
+        return Array.isArray(state.readiness?.items) ? state.readiness.items : [];
+      }
+
+      function readinessItemById(itemId) {
+        return readinessItems().find((item) => item.id === itemId) || null;
+      }
+
+      function readinessBlockingItems() {
+        return readinessItems().filter((item) => item.blocking);
+      }
+
+      function readinessAutoFixItems() {
+        return readinessBlockingItems().filter((item) => item.auto_fixable && item.action && item.action.event);
+      }
+
+      function readinessItemsFor(scope, targetId) {
+        return readinessItems().filter((item) => item.scope === scope && item.target_id === targetId);
+      }
+
+      function renderReadinessItem(item) {
+        const action = item.action || null;
+        return `
+          <div class="readiness-item">
+            <div class="title">${esc(item.message || "Missing asset")}</div>
+            <div class="detail">${esc(item.detail || "")}</div>
+            ${action ? `
+              <div class="actions">
+                <button class="btn" data-action="readiness-fix-item" data-item-id="${esc(item.id)}">${esc(action.label || "Fix")}</button>
+              </div>
+            ` : ""}
+          </div>
+        `;
+      }
+
+      function renderAssetCallout(item) {
+        const action = item?.action || null;
+        if (!item) return "";
+        return `
+          <div class="asset-callout">
+            <div><strong>${esc(item.message || "Missing asset")}</strong></div>
+            <div class="hint" style="margin-top:4px;">${esc(item.detail || "")}</div>
+            ${action ? `<div class="actions" style="margin-top:6px;"><button class="btn" data-action="readiness-fix-item" data-item-id="${esc(item.id)}">${esc(action.label || "Fix")}</button></div>` : ""}
+          </div>
+        `;
+      }
+
+      function renderStoryReadinessCard() {
+        if (!state.currentStory) return "";
+
+        const readiness = state.readiness;
+        if (!readiness) {
+          return `
+            <div class="card">
+              <h3>Ship Readiness</h3>
+              <div class="hint">Loading readiness checklist...</div>
+            </div>
+          `;
+        }
+
+        const blockingItems = readinessBlockingItems();
+        const autoFixItems = readinessAutoFixItems();
+        const topItems = blockingItems.slice(0, 12);
+        const ready = readiness.ready === true;
+
+        return `
+          <div class="card">
+            <h3>Ship Readiness</h3>
+            <div class="readiness-summary">
+              <span class="readiness-pill ${ready ? "ok" : ""}">${ready ? "Ready for Reader" : "Not Ready"}</span>
+              <span class="readiness-pill">blocking ${Number(readiness.blocking_count || 0)}</span>
+              <span class="readiness-pill">auto-fixable ${Number(readiness.auto_fixable_count || 0)}</span>
+              <span class="readiness-pill">manual ${Number(readiness.manual_count || 0)}</span>
+            </div>
+            ${readiness.error ? `<div class="hint" style="color:#872d1a;margin-bottom:8px;">Checklist unavailable: ${esc(readiness.error)}</div>` : ""}
+            <div class="actions" style="margin-bottom:8px;">
+              <button class="btn ok" data-action="generate-missing-assets" ${autoFixItems.length ? "" : "disabled"}>Generate All Missing Assets</button>
+              <button class="btn flat" data-action="refresh-readiness">Refresh Checklist</button>
+            </div>
+            ${ready ? `<div class="hint">All required reader assets are present in StoryPack.</div>` : ""}
+            ${topItems.length ? `<div class="readiness-list">${topItems.map(renderReadinessItem).join("")}</div>` : ""}
+            ${blockingItems.length > topItems.length ? `<div class="hint" style="margin-top:6px;">+${blockingItems.length - topItems.length} additional items in checklist.</div>` : ""}
+          </div>
+        `;
+      }
+
+      function optimisticJobFromReadiness(item) {
+        const action = item?.action || {};
+        return {
+          jobType: action.job_type || "unknown",
+          targetId: action.target_id || null,
+          details: {
+            target_label: action.target_label || item.target_label || item.message || "Missing asset fix",
+            page_number: item.page_number || null,
+            character_name: item.character_name || null,
+            text_preview: item.text_preview || null
+          }
+        };
+      }
+
+      function selectedDeploySubdomain() {
+        if (!state.currentStory) return "";
+        const typed = $("deploySubdomain")?.value?.trim() || "";
+        if (typed) return typed;
+        return state.currentStory.slug || "story";
+      }
+
+      function activeDeployPreflight() {
+        const subdomain = selectedDeploySubdomain();
+        if (!subdomain) return null;
+
+        const result = state.deployPreflight;
+        if (!result || result.subdomain !== subdomain) return null;
+        return result;
+      }
+
+      function deployPreflightMessage(result) {
+        if (!result) return "";
+
+        if (result.availability === "available" || result.availability === "owned") {
+          const mode = result.availability === "owned" ? "Re-deploy allowed" : "Available";
+          return `Subdomain "${result.subdomain}" is ${mode}.`;
+        }
+
+        return `Subdomain "${result.subdomain}" is already in use by another story.`;
+      }
+
+      function renderDeployPreflightStatus() {
+        const el = $("deployPreflightStatus");
+        if (!el) return;
+
+        if (!state.currentStory) {
+          el.textContent = "";
+          return;
+        }
+
+        const active = activeDeployPreflight();
+        if (!active) {
+          const subdomain = selectedDeploySubdomain();
+          el.textContent = subdomain
+            ? `Deploy target: ${subdomain}. Click Check before Deploy.`
+            : "Enter a subdomain, then click Check.";
+          el.style.color = "";
+          return;
+        }
+
+        el.textContent = deployPreflightMessage(active);
+        el.style.color = active.available ? "var(--ok)" : "var(--danger)";
+      }
+
+      async function runDeployPreflight(options = {}) {
+        if (!state.currentStory) throw new Error("story_required");
+        const subdomain = selectedDeploySubdomain();
+        if (!subdomain) throw new Error("subdomain_required");
+
+        const result = await push("deploy_preflight", { subdomain });
+        state.deployPreflight = result;
+        renderDeployPreflightStatus();
+
+        if (!options.silent) {
+          setStatus(deployPreflightMessage(result), !!result.available);
+        }
+
+        return result;
+      }
+
       function renderGlobalActions() {
         const noStory = !state.currentStory;
         const dialogueBusy = hasActiveJobType("dialogue") || hasActiveJobType("dialogue_tts");
+        const preflight = activeDeployPreflight();
+        const deployBlocked = !!(preflight && preflight.available === false);
 
         const scenes = $("btnGenerateAllScenes");
         const audio = $("btnGenerateAllAudio");
         const dialogue = $("btnGenerateAllDialogue");
         const all = $("btnGenerateAll");
+        const deploy = $("btnDeployStory");
+        const preflightBtn = $("btnDeployPreflight");
         const status = $("dialogueBatchStatus");
 
         if (scenes) scenes.disabled = noStory;
         if (audio) audio.disabled = noStory;
         if (all) all.disabled = noStory;
+        if (preflightBtn) preflightBtn.disabled = noStory;
+        if (deploy) deploy.disabled = noStory || deployBlocked;
 
         if (dialogue) {
           dialogue.disabled = noStory || dialogueBusy;
@@ -1504,6 +1775,8 @@
             status.textContent = "Generate All Dialogue + Voices fills empty pages with dialogue and immediately queues ElevenLabs audio.";
           }
         }
+
+        renderDeployPreflightStatus();
       }
 
       function voiceOptionsMarkup(selected) {
@@ -1561,6 +1834,7 @@
         if (!state.currentStory) return '<div class="hint">Pick a story from the lobby.</div>';
         return `
           <div class="stack">
+            ${renderStoryReadinessCard()}
             <div class="card">
               <h3>Story Details</h3>
               <div class="row">
@@ -1595,10 +1869,15 @@
           const previewUrl = preview?.url || (c.voice_preview_url ? assetUrl(c.voice_preview_url) : "");
           const defaultPreviewText = `Hello, my name is ${c.name || "friend"}. I'm so happy to meet you!`;
           const headshotActionLabel = c.headshot_url ? "Regenerate Headshot" : "Generate Headshot";
+          const characterReadiness = readinessItemsFor("character", c.id);
+          const headshotGap = characterReadiness.find((item) => item.code === "missing_headshot");
+          const voiceGap = characterReadiness.find((item) => item.code === "missing_character_voice");
 
           return `
           <div class="card">
             <h3>${esc(c.name || "Character")}</h3>
+            ${headshotGap ? renderAssetCallout(headshotGap) : ""}
+            ${voiceGap ? renderAssetCallout(voiceGap) : ""}
             <div class="row">
               <div class="field"><label>Name</label><input id="char-name-${c.id}" value="${esc(c.name)}" /></div>
               <div class="field">
@@ -1709,10 +1988,17 @@
                 p.narration_audio_url ? "Regenerate Narration" : "Generate Narration";
               const dialogueActionLabel =
                 hasDialogueLines ? "Regenerate Dialogue + Voices" : "Generate Dialogue + Voices";
+              const pageReadiness = readinessItemsFor("page", p.id);
+              const pageSceneGap = pageReadiness.find((item) => item.code === "missing_scene_image");
+              const pageNarrationGap = pageReadiness.find((item) => item.code === "missing_narration_assets");
+              const pageDialogueGap = pageReadiness.find((item) => item.code === "missing_dialogue");
 
               return `
               <div class="card">
                 <h3>Page ${p.page_index + 1}</h3>
+                ${pageDialogueGap ? renderAssetCallout(pageDialogueGap) : ""}
+                ${pageSceneGap ? renderAssetCallout(pageSceneGap) : ""}
+                ${pageNarrationGap ? renderAssetCallout(pageNarrationGap) : ""}
                 <div class="row">
                   <div class="field"><label>Page Index</label><input id="page-index-${p.id}" type="number" value="${p.page_index}" /></div>
                   <div class="field"><label>Sort</label><input id="page-sort-${p.id}" type="number" value="${p.sort_order || p.page_index}" /></div>
@@ -2107,7 +2393,49 @@
             if (state.currentTab === "preview") await loadPreviewPack();
             renderTabContent();
           }
+
+          if (action === "refresh-readiness") {
+            refreshAfterAction = false;
+            if (!state.currentStory) return;
+            await loadReadiness();
+            renderTabContent();
+          }
+
           if (!state.currentStory) return;
+
+          if (action === "generate-missing-assets") {
+            const fixable = readinessAutoFixItems();
+            if (!fixable.length) {
+              refreshAfterAction = false;
+              setStatus("No auto-fixable missing assets in the checklist.", true);
+            } else {
+              optimisticJobId = enqueueOptimisticJob("all", null, {
+                target_label: "Generate all missing assets"
+              });
+              await push("generate_all", { source: "readiness_generate_all" });
+            }
+          }
+
+          if (action === "readiness-fix-item") {
+            refreshAfterAction = false;
+            const item = readinessItemById(node.dataset.itemId);
+            if (!item) throw new Error("readiness_item_not_found");
+
+            if (!item.action || !item.action.event) {
+              setStatus(item.detail || "Manual update required.", false);
+            } else {
+              const optimistic = optimisticJobFromReadiness(item);
+              optimisticJobId = enqueueOptimisticJob(
+                optimistic.jobType,
+                optimistic.targetId,
+                optimistic.details
+              );
+
+              await push(item.action.event, item.action.payload || {});
+              await Promise.all([loadStoryFull(), loadJobs()]);
+              if (state.currentTab === "preview") await loadPreviewPack();
+            }
+          }
 
           if (action === "save-story") {
             await push("update_story", {
@@ -2432,8 +2760,22 @@
             renderEventFeed();
           }
 
+          if (action === "deploy-preflight") {
+            refreshAfterAction = false;
+            await runDeployPreflight();
+          }
+
           if (action === "deploy-story") {
-            const subdomain = $("deploySubdomain").value.trim() || (state.currentStory.slug || "story");
+            const subdomain = selectedDeploySubdomain();
+            const preflight = await runDeployPreflight({ silent: true });
+
+            if (!preflight.available) {
+              refreshAfterAction = false;
+              setStatus(deployPreflightMessage(preflight), false);
+              renderGlobalActions();
+              return;
+            }
+
             await push("deploy_story", { subdomain });
           }
 
@@ -2452,6 +2794,11 @@
       $("queueSearch").addEventListener("input", (event) => {
         state.queueSearch = event.target.value || "";
         renderJobs();
+      });
+
+      $("deploySubdomain").addEventListener("input", () => {
+        renderDeployPreflightStatus();
+        renderGlobalActions();
       });
 
       document.body.addEventListener("focusin", (event) => {

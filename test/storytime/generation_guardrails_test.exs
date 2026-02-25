@@ -59,6 +59,38 @@ defmodule Storytime.GenerationGuardrailsTest do
              Generation.validate_single_job(story, :narration_tts, "missing")
   end
 
+  test "missing audio guards treat absent timings as missing assets" do
+    assert Generation.missing_dialogue_audio?(%{
+             audio_url: "https://assets.example/dialogue.mp3",
+             timings_url: nil
+           })
+
+    assert Generation.missing_dialogue_audio?(%{
+             audio_url: nil,
+             timings_url: "https://assets.example/dialogue_timings.json"
+           })
+
+    refute Generation.missing_dialogue_audio?(%{
+             audio_url: "https://assets.example/dialogue.mp3",
+             timings_url: "https://assets.example/dialogue_timings.json"
+           })
+
+    assert Generation.missing_narration_audio?(%{
+             narration_audio_url: "https://assets.example/narration.mp3",
+             narration_timings_url: nil
+           })
+
+    assert Generation.missing_narration_audio?(%{
+             narration_audio_url: nil,
+             narration_timings_url: "https://assets.example/narration_timings.json"
+           })
+
+    refute Generation.missing_narration_audio?(%{
+             narration_audio_url: "https://assets.example/narration.mp3",
+             narration_timings_url: "https://assets.example/narration_timings.json"
+           })
+  end
+
   defp sample_story do
     %{
       characters: [

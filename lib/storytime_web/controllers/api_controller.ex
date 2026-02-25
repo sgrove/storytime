@@ -3,6 +3,7 @@ defmodule StorytimeWeb.ApiController do
 
   alias Storytime.Assets
   alias Storytime.JobDiagnostics
+  alias Storytime.Readiness
   alias Storytime.SonautoTags
   alias Storytime.StoryPack
   alias Storytime.Stories
@@ -75,6 +76,20 @@ defmodule StorytimeWeb.ApiController do
         )
 
       json(conn, %{jobs: jobs})
+    end)
+  end
+
+  def story_readiness(conn, %{"id" => id}) do
+    with_repo(conn, fn conn ->
+      case Stories.load_story_graph(id) do
+        nil ->
+          conn
+          |> put_status(:not_found)
+          |> json(%{error: "not_found"})
+
+        story ->
+          json(conn, Readiness.evaluate(story))
+      end
     end)
   end
 

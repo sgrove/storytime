@@ -3,6 +3,7 @@ defmodule Storytime.Generation do
   Oban-backed generation/deploy orchestration.
   """
 
+  alias Storytime.Deploy.RenderDeploy
   alias Storytime.Stories
 
   alias Storytime.Workers.{
@@ -72,6 +73,7 @@ defmodule Storytime.Generation do
   def enqueue_deploy(story_id, subdomain, payload \\ %{}) do
     with :ok <- validate_subdomain(subdomain),
          :ok <- validate_deploy_story(story_id),
+         {:ok, _preflight} <- ensure_subdomain_available(story_id, subdomain),
          {:ok, gen_job} <- Stories.create_generation_job(story_id, :deploy, nil),
          {:ok, _oban_job} <-
            %{
@@ -83,6 +85,15 @@ defmodule Storytime.Generation do
            |> Oban.insert(),
          {:ok, _} <- Stories.set_story_status(story_id, :generating) do
       {:ok, gen_job}
+    end
+  end
+
+  @spec deploy_preflight(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def deploy_preflight(story_id, subdomain) do
+    with :ok <- validate_subdomain(subdomain),
+         {:ok, story} <- fetch_story_for_deploy(story_id),
+         {:ok, preflight} <- RenderDeploy.preflight_story_site(story, subdomain) do
+      {:ok, preflight}
     end
   end
 
@@ -117,13 +128,13 @@ defmodule Storytime.Generation do
       jobs =
         Enum.flat_map(story.pages, fn p ->
           narration =
-            if blank?(p.narration_audio_url) and text_present?(p.narration_text),
+            if missing_narration_audio?(p) and text_present?(p.narration_text),
               do: [{:narration_tts, p.id}],
               else: []
 
           dialogue =
             Enum.flat_map(p.dialogue_lines, fn line ->
-              if blank?(line.audio_url) and text_present?(line.text),
+              if missing_dialogue_audio?(line) and text_present?(line.text),
                 do: [{:dialogue_tts, line.id}],
                 else: []
             end)
@@ -262,6 +273,16 @@ defmodule Storytime.Generation do
   end
 
   def validate_single_job(_story, _job_type, _target_id), do: :ok
+
+  @doc false
+  def missing_dialogue_audio?(line) when is_map(line) do
+    blank?(Map.get(line, :audio_url)) or blank?(Map.get(line, :timings_url))
+  end
+
+  @doc false
+  def missing_narration_audio?(page) when is_map(page) do
+    blank?(Map.get(page, :narration_audio_url)) or blank?(Map.get(page, :narration_timings_url))
+  end
 
   defp persist_and_enqueue(story_id, jobs, payload) do
     jobs
@@ -456,6 +477,23 @@ defmodule Storytime.Generation do
         else
           :ok
         end
+    end
+  end
+
+  defp ensure_subdomain_available(story_id, subdomain) do
+    with {:ok, preflight} <- deploy_preflight(story_id, subdomain) do
+      if Map.get(preflight, :available) do
+        {:ok, preflight}
+      else
+        {:error, :subdomain_taken}
+      end
+    end
+  end
+
+  defp fetch_story_for_deploy(story_id) do
+    case Stories.get_story(story_id) do
+      nil -> {:error, :not_found}
+      story -> {:ok, story}
     end
   end
 end
