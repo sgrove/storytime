@@ -32,10 +32,20 @@ jobs:
           path: |
             deps
             _build
-            priv/plts
-          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
+          key: ${{ runner.os }}-mix-otp27.3-elixir1.18.4-${{ hashFiles('mix.lock') }}
           restore-keys: |
-            ${{ runner.os }}-mix-
+            ${{ runner.os }}-mix-otp27.3-elixir1.18.4-
+
+      - name: Cache Dialyzer PLTs
+        uses: actions/cache@v4
+        with:
+          path: |
+            _build/dev/*.plt
+            _build/dev/*.plt.hash
+            priv/plts
+          key: ${{ runner.os }}-dialyzer-otp27.3-elixir1.18.4-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-dialyzer-otp27.3-elixir1.18.4-
 
       - name: Install Hex and Rebar
         run: |
