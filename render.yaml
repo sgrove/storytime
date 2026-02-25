@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: storytime-api
+    runtime: elixir
+    plan: starter
+    region: oregon
+    buildCommand: |
+      mix deps.get --only prod
+      MIX_ENV=prod mix deps.compile
+      MIX_ENV=prod mix compile
+    startCommand: MIX_ENV=prod mix run --no-halt
+    healthCheckPath: /health
+
+  - type: web
+    name: storytime-editor
+    runtime: static
+    buildCommand: echo "No build step yet"
+    staticPublishPath: editor
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: web
+    name: storytime-reader-template
+    runtime: static
+    buildCommand: echo "No build step yet"
+    staticPublishPath: reader
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
