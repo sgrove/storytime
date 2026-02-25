@@ -1,13 +1,15 @@
 defmodule StorytimeWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :storytime
 
+  @assets_root System.get_env("ASSETS_ROOT") || "/app/assets"
+
   socket "/socket", StorytimeWeb.UserSocket,
     websocket: [check_origin: false],
     longpoll: false
 
   plug Plug.Static,
     at: "/assets",
-    from: assets_root(),
+    from: @assets_root,
     gzip: false,
     cache_control_for_etags: "public, max-age=31536000"
 
@@ -25,8 +27,4 @@ defmodule StorytimeWeb.Endpoint do
     json_decoder: Phoenix.json_library()
 
   plug StorytimeWeb.Router
-
-  defp assets_root do
-    System.get_env("ASSETS_ROOT") || "/app/assets"
-  end
 end
