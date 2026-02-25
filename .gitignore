@@ -1,0 +1,11 @@
+/_build/
+/deps/
+/.elixir_ls/
+/.DS_Store
+
+# Node
+node_modules/
+
+# Local secrets
+.env
+API_KEYS
