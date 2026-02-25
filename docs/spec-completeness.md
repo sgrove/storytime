@@ -13,7 +13,7 @@ Legend:
 |---|---|---|
 | FR-001..FR-009 Authoring + story data | Done | Persisted story/character/page/dialogue/music CRUD with slug uniqueness/normalization, page reordering, and preview from canonical StoryPack. |
 | FR-010..FR-014 Editor real-time protocol | Partial | Full `story:{id}` join + required mutation/generation/deploy events and persisted writes are live, with contract tests tracking required FR-011/FR-012 event coverage; payload-shape parity rehearsal is still in progress. |
-| FR-015..FR-023 Generation pipeline | Partial | Oban-backed image/TTS/music/deploy workers are live with retries, staged `generation_progress`, and failure broadcasts; fallback providers were removed so failures surface explicitly per spec semantics. |
+| FR-015..FR-023 Generation pipeline | Partial | Oban-backed image/dialogue/TTS/music/deploy workers are live with retries, staged `generation_progress`, and failure broadcasts. New page-level `generate_dialogue` flow now generates dialogue via LLM and immediately queues ElevenLabs voice jobs using character voice IDs. |
 | FR-024..FR-030 Asset pipeline + StoryPack | Done | Deterministic `/app/assets/{story_id}` pathing, asset naming, `/assets/*` serving, StoryPack assembly endpoint, absolute URLs, and schema versions are implemented. |
 | FR-031..FR-039 Reader experience | Partial | Reader implements loading/error states, scene rendering, navigation/swipe, narration/dialogue playback, word highlighting, narrate/read-alone mode, and music crossfade/volume; final UX polish remains. |
 | FR-040..FR-044 Collaboration | Partial | Reader now uses InstantDB room collaboration (presence, host page sync, pointer sharing) with visible errors when misconfigured; multi-device verification is still in progress. |

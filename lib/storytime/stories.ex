@@ -21,7 +21,8 @@ defmodule Storytime.Stories do
     Story
   }
 
-  @type job_type :: :headshot | :scene | :dialogue_tts | :narration_tts | :music | :deploy
+  @type job_type ::
+          :headshot | :scene | :dialogue | :dialogue_tts | :narration_tts | :music | :deploy
   @active_generation_statuses [:pending, :running]
 
   def repo_running?, do: Process.whereis(Storytime.Repo) != nil
@@ -228,6 +229,38 @@ defmodule Storytime.Stories do
       Repo.delete(line)
     else
       nil -> {:error, :not_found}
+    end
+  end
+
+  def replace_page_dialogue_lines(story_id, page_id, line_attrs_list)
+      when is_list(line_attrs_list) do
+    with %Page{} <- get_story_page(story_id, page_id),
+         {:ok, normalized_lines} <- normalize_replacement_dialogue(story_id, line_attrs_list) do
+      Repo.transaction(fn ->
+        Repo.delete_all(from(d in DialogueLine, where: d.page_id == ^page_id))
+
+        normalized_lines
+        |> Enum.with_index()
+        |> Enum.reduce_while([], fn {attrs, idx}, acc ->
+          attrs = attrs |> Map.put(:page_id, page_id) |> Map.put(:sort_order, idx)
+
+          case %DialogueLine{} |> DialogueLine.changeset(attrs) |> Repo.insert() do
+            {:ok, line} ->
+              {:cont, [line | acc]}
+
+            {:error, changeset} ->
+              Repo.rollback(changeset)
+          end
+        end)
+        |> Enum.reverse()
+      end)
+      |> case do
+        {:ok, lines} -> {:ok, Repo.preload(lines, :character)}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -489,6 +522,42 @@ defmodule Storytime.Stories do
   defp next_dialogue_sort(page_id) do
     (Repo.one(from(d in DialogueLine, where: d.page_id == ^page_id, select: max(d.sort_order))) ||
        -1) + 1
+  end
+
+  defp normalize_replacement_dialogue(story_id, line_attrs_list) do
+    line_attrs_list
+    |> Enum.reduce_while({:ok, []}, fn attrs, {:ok, acc} ->
+      case normalize_replacement_dialogue_line(story_id, attrs) do
+        {:ok, line} -> {:cont, {:ok, [line | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, lines} when lines == [] -> {:error, :dialogue_lines_empty}
+      {:ok, lines} -> {:ok, Enum.reverse(lines)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_replacement_dialogue_line(story_id, attrs) do
+    attrs = normalize_keys(attrs)
+
+    character_id = Map.get(attrs, :character_id)
+    text = attrs |> Map.get(:text, "") |> to_string() |> String.trim()
+
+    cond do
+      character_id in [nil, ""] ->
+        {:error, {:missing_field, "character_id"}}
+
+      text == "" ->
+        {:error, {:missing_field, "text"}}
+
+      is_nil(get_story_character(story_id, character_id)) ->
+        {:error, :not_found}
+
+      true ->
+        {:ok, %{character_id: character_id, text: text}}
+    end
   end
 
   defp put_slug_if_missing(%{slug: slug} = attrs) when is_binary(slug) and slug != "", do: attrs

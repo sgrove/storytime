@@ -11,11 +11,13 @@
 - [x] Channel `story:{story_id}` join implemented.
 - [x] Persisted channel mutation events implemented: `update_story`, character/page/dialogue/music CRUD, and page reorder.
 - [x] Generation/deploy channel triggers implemented: `generate_*`, `generate_all*`, `deploy_story`.
+- [x] Page-level dialogue generation (`generate_dialogue`) now produces dialogue text from LLM context and queues voice generation jobs in the same flow.
 - [x] Oban generation/deploy jobs are enqueued and projected via `generation_jobs`.
 - [x] Asset files are persisted under deterministic `/app/assets/{story_id}` naming.
 - [x] Story status transitions now enforce `draft/generating/ready/deployed` flow for generation/deploy events.
 - [x] Deploy input validation rejects invalid subdomain and missing-content deploy attempts before enqueue.
 - [x] Reader supports navigation, narration/dialogue playback, word highlighting, narrate/read-alone mode, and music crossfade/volume.
+- [x] Editor now supports ElevenLabs voice-picking via `/api/voices/elevenlabs`, one-click `Generate Dialogue + Voices`, inline dialogue audio playback, and job/progress indicators.
 - [x] Reader collaboration uses InstantDB room model (presence, host page sync, pointers) with explicit misconfiguration errors.
 - [x] Render API service deploy from GitHub is active.
 - [x] Render managed Postgres provisioned and wired via `DATABASE_URL`.

@@ -4,7 +4,15 @@ defmodule Storytime.Generation do
   """
 
   alias Storytime.Stories
-  alias Storytime.Workers.{DeployWorker, ImageGenWorker, MusicGenWorker, TtsGenWorker}
+
+  alias Storytime.Workers.{
+    DeployWorker,
+    DialogueGenWorker,
+    ImageGenWorker,
+    MusicGenWorker,
+    TtsGenWorker
+  }
+
   @subdomain_regex ~r/^[a-z0-9](?:[a-z0-9-]{1,40}[a-z0-9])?$/
 
   @spec enqueue(String.t(), atom(), String.t() | nil, map()) :: {:ok, map()} | {:error, term()}
@@ -36,6 +44,7 @@ defmodule Storytime.Generation do
 
   defp jobs_for_request(_story_id, :headshot, target_id), do: single(:headshot, target_id)
   defp jobs_for_request(_story_id, :scene, target_id), do: single(:scene, target_id)
+  defp jobs_for_request(_story_id, :dialogue, target_id), do: single(:dialogue, target_id)
   defp jobs_for_request(_story_id, :dialogue_tts, target_id), do: single(:dialogue_tts, target_id)
 
   defp jobs_for_request(_story_id, :narration_tts, target_id),
@@ -152,6 +161,17 @@ defmodule Storytime.Generation do
       "payload" => payload
     }
     |> TtsGenWorker.new(queue: :generation, max_attempts: 6)
+    |> Oban.insert()
+  end
+
+  defp insert_oban_job(story_id, generation_job_id, :dialogue, target_id, payload) do
+    %{
+      "generation_job_id" => generation_job_id,
+      "story_id" => story_id,
+      "target_id" => target_id,
+      "payload" => payload
+    }
+    |> DialogueGenWorker.new(queue: :generation, max_attempts: 4)
     |> Oban.insert()
   end
 

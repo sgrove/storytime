@@ -83,7 +83,8 @@ defmodule StorytimeWeb.ApiController do
   def story_pack(conn, %{"id" => id}) do
     with_repo(conn, fn conn ->
       case StoryPack.build(id) do
-        {:ok, payload} -> json(conn, payload)
+        {:ok, payload} ->
+          json(conn, payload)
 
         {:error, :not_found} ->
           conn
@@ -113,6 +114,29 @@ defmodule StorytimeWeb.ApiController do
           end
       end
     end)
+  end
+
+  def voices(conn, %{"provider" => "elevenlabs"}) do
+    case elevenlabs_voices() do
+      {:ok, voices} ->
+        json(conn, %{provider: "elevenlabs", voices: voices})
+
+      {:error, :missing_elevenlabs_api_key} ->
+        conn
+        |> put_status(:service_unavailable)
+        |> json(%{error: "missing_elevenlabs_api_key"})
+
+      {:error, reason} ->
+        conn
+        |> put_status(:bad_gateway)
+        |> json(%{error: "voice_provider_error", details: inspect(reason)})
+    end
+  end
+
+  def voices(conn, _params) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "unsupported_voice_provider"})
   end
 
   defp with_repo(conn, fun) do
@@ -227,5 +251,43 @@ defmodule StorytimeWeb.ApiController do
     System.get_env("RENDER_GIT_COMMIT") ||
       System.get_env("RENDER_GIT_SHA") ||
       System.get_env("SOURCE_VERSION")
+  end
+
+  defp elevenlabs_voices do
+    api_key = System.get_env("ELEVENLABS_API_KEY")
+
+    if api_key in [nil, ""] do
+      {:error, :missing_elevenlabs_api_key}
+    else
+      headers = [
+        {"xi-api-key", api_key},
+        {"accept", "application/json"}
+      ]
+
+      case Req.get("https://api.elevenlabs.io/v1/voices", headers: headers) do
+        {:ok, %{status: 200, body: %{"voices" => voices}}} when is_list(voices) ->
+          parsed =
+            voices
+            |> Enum.map(fn voice ->
+              %{
+                id: voice["voice_id"] || voice["id"],
+                name: voice["name"],
+                category: voice["category"],
+                description: voice["description"],
+                labels: voice["labels"] || %{}
+              }
+            end)
+            |> Enum.filter(fn voice -> is_binary(voice.id) and voice.id != "" end)
+            |> Enum.sort_by(fn voice -> String.downcase(voice.name || "") end)
+
+          {:ok, parsed}
+
+        {:ok, %{status: status, body: body}} ->
+          {:error, {:elevenlabs_error, status, body}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
   end
 end

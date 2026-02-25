@@ -346,7 +346,9 @@
         jobsPoll: null,
         previewPack: null,
         recentEvents: [],
-        jobProgress: {}
+        jobProgress: {},
+        voiceOptions: [],
+        voiceLoadError: null
       };
 
       const $ = (id) => document.getElementById(id);
@@ -361,6 +363,12 @@
 
       function withApi(path) {
         return `${state.apiBase.replace(/\/$/, "")}${path}`;
+      }
+
+      function assetUrl(path) {
+        if (!path) return "";
+        if (/^https?:\/\//i.test(path)) return path;
+        return withApi(path);
       }
 
       async function api(path, opts = {}) {
@@ -394,6 +402,20 @@
         }
       }
 
+      async function loadVoices() {
+        state.voiceLoadError = null;
+
+        try {
+          const payload = await api("/api/voices/elevenlabs");
+          state.voiceOptions = payload.voices || [];
+        } catch (err) {
+          state.voiceOptions = [];
+          state.voiceLoadError = err.message || "failed_to_load_voices";
+        }
+
+        if (state.currentTab === "cast") renderTabContent();
+      }
+
       async function createStory() {
         const title = $("newTitle").value.trim() || "Untitled Story";
         const art_style = $("newStyle").value.trim() || "storybook watercolor";
@@ -415,6 +437,7 @@
         renderTabContent();
         await connectChannel();
         await loadJobs();
+        if (!state.voiceOptions.length) await loadVoices();
       }
 
       async function loadStoryFull() {
@@ -524,6 +547,32 @@
         return (state.currentStory?.music_tracks || []);
       }
 
+      function latestJob(jobType, targetId) {
+        return (state.jobs || []).find((job) => job.job_type === jobType && job.target_id === targetId);
+      }
+
+      function progressFor(job) {
+        if (!job) return null;
+        return typeof state.jobProgress[job.id] === "number" ? state.jobProgress[job.id] : null;
+      }
+
+      function voiceOptionsMarkup(selected) {
+        const options = state.voiceOptions || [];
+        const selectedExists = options.some((v) => v.id === selected);
+        const parts = [];
+
+        if (selected && !selectedExists) {
+          parts.push(`<option value="${esc(selected)}">${esc(selected)} (current)</option>`);
+        }
+
+        for (const voice of options) {
+          const label = [voice.name || voice.id, voice.category].filter(Boolean).join(" • ");
+          parts.push(`<option value="${esc(voice.id)}">${esc(label)}</option>`);
+        }
+
+        return parts.join("");
+      }
+
       function renderStoryTab() {
         if (!state.currentStory) return '<div class="hint">Pick a story from the lobby.</div>';
         return `
@@ -552,10 +601,10 @@
             <h3>${esc(c.name || "Character")}</h3>
             <div class="row">
               <div class="field"><label>Name</label><input id="char-name-${c.id}" value="${esc(c.name)}" /></div>
-              <div class="field"><label>Voice ID</label><input id="char-voice-${c.id}" value="${esc(c.voice_id || "")}" /></div>
+              <div class="field"><label>Voice ID</label><input list="voiceCatalog" id="char-voice-${c.id}" value="${esc(c.voice_id || "")}" placeholder="Pick or paste ElevenLabs voice id" /></div>
             </div>
             <div class="field"><label>Visual Description</label><textarea id="char-desc-${c.id}">${esc(c.visual_description || "")}</textarea></div>
-            ${c.headshot_url ? `<img src="${esc(withApi(c.headshot_url))}" alt="headshot" style="max-width:180px;border-radius:10px;border:1px solid #ccb48f;" />` : ""}
+            ${c.headshot_url ? `<img src="${esc(assetUrl(c.headshot_url))}" alt="headshot" style="max-width:180px;border-radius:10px;border:1px solid #ccb48f;" />` : ""}
             <div class="actions">
               <button class="btn" data-action="save-character" data-id="${c.id}">Save</button>
               <button class="btn" data-action="generate-headshot" data-id="${c.id}">Generate Headshot</button>
@@ -567,10 +616,19 @@
         return `
           <div class="stack">
             <div class="card">
+              <h3>Voice Library</h3>
+              <div class="actions">
+                <button class="btn" data-action="load-voices">Load ElevenLabs Voices</button>
+                <span class="hint">${state.voiceOptions.length ? `${state.voiceOptions.length} voices loaded` : "No voices loaded yet."}</span>
+              </div>
+              ${state.voiceLoadError ? `<div style="color:#872d1a;margin-top:6px;">${esc(state.voiceLoadError)}</div>` : ""}
+              <datalist id="voiceCatalog">${voiceOptionsMarkup("")}</datalist>
+            </div>
+            <div class="card">
               <h3>Add Character</h3>
               <div class="row">
                 <div class="field"><label>Name</label><input id="newCharName" placeholder="Luna" /></div>
-                <div class="field"><label>Voice ID</label><input id="newCharVoice" placeholder="ElevenLabs voice id" /></div>
+                <div class="field"><label>Voice ID</label><input list="voiceCatalog" id="newCharVoice" placeholder="Pick or paste ElevenLabs voice id" /></div>
               </div>
               <div class="field"><label>Visual Description</label><textarea id="newCharDesc" placeholder="A bright fox with a blue scarf"></textarea></div>
               <button class="btn ok" data-action="add-character">Add Character</button>
@@ -582,6 +640,10 @@
 
       function dialogueRow(page, line) {
         const chars = currentCharacters();
+        const ttsJob = latestJob("dialogue_tts", line.id);
+        const ttsProgress = progressFor(ttsJob);
+        const ttsStatus = ttsJob ? `${ttsJob.status}${ttsProgress !== null ? ` (${ttsProgress}%)` : ""}` : null;
+
         return `
           <div class="card" style="background:#fff5de;">
             <div class="row">
@@ -594,9 +656,11 @@
               <div class="field"><label>Sort</label><input id="line-sort-${line.id}" type="number" value="${line.sort_order || 0}" /></div>
             </div>
             <div class="field"><label>Text</label><textarea id="line-text-${line.id}">${esc(line.text || "")}</textarea></div>
+            ${ttsStatus ? `<div class="hint" style="margin-bottom:8px;">Voice job: ${esc(ttsStatus)}</div>` : ""}
+            ${line.audio_url ? `<audio controls src="${esc(assetUrl(line.audio_url))}" style="width:100%;margin-bottom:8px;"></audio>` : ""}
             <div class="actions">
               <button class="btn" data-action="save-line" data-id="${line.id}">Save Line</button>
-              <button class="btn" data-action="generate-line" data-id="${line.id}">Generate Audio</button>
+              <button class="btn" data-action="generate-line" data-id="${line.id}">Generate Voice</button>
               <button class="btn warn" data-action="delete-line" data-id="${line.id}">Delete</button>
             </div>
           </div>
@@ -624,15 +688,24 @@
                 </div>
                 <div class="field"><label>Scene Description</label><textarea id="page-scene-${p.id}">${esc(p.scene_description || "")}</textarea></div>
                 <div class="field"><label>Narration</label><textarea id="page-narration-${p.id}">${esc(p.narration_text || "")}</textarea></div>
-                ${p.scene_image_url ? `<img src="${esc(withApi(p.scene_image_url))}" style="width:100%;max-height:220px;object-fit:contain;border-radius:10px;border:1px solid #cfb792;background:#f1dfbc;" />` : ""}
+                ${p.scene_image_url ? `<img src="${esc(assetUrl(p.scene_image_url))}" style="width:100%;max-height:220px;object-fit:contain;border-radius:10px;border:1px solid #cfb792;background:#f1dfbc;" />` : ""}
                 <div class="actions">
                   <button class="btn" data-action="save-page" data-id="${p.id}">Save Page</button>
                   <button class="btn" data-action="page-up" data-index="${idx}">Move Up</button>
                   <button class="btn" data-action="page-down" data-index="${idx}">Move Down</button>
                   <button class="btn" data-action="generate-scene" data-id="${p.id}">Generate Scene</button>
                   <button class="btn" data-action="generate-narration" data-id="${p.id}">Generate Narration</button>
+                  <input id="page-dialogue-count-${p.id}" type="number" min="1" max="8" value="${Math.max((currentCharacters().length || 2), 2)}" style="max-width:84px;" />
+                  <button class="btn ok" data-action="generate-page-dialogue" data-id="${p.id}">Generate Dialogue + Voices</button>
                   <button class="btn warn" data-action="delete-page" data-id="${p.id}">Delete</button>
                 </div>
+                ${(() => {
+                  const dialogueJob = latestJob("dialogue", p.id);
+                  const dialogueProgress = progressFor(dialogueJob);
+                  if (!dialogueJob) return "";
+                  const status = `${dialogueJob.status}${dialogueProgress !== null ? ` (${dialogueProgress}%)` : ""}`;
+                  return `<div class="hint" style="margin-top:8px;">Dialogue generation: ${esc(status)}</div>`;
+                })()}
                 <div class="stack" style="margin-top:10px;">
                   <h3 style="font-size:20px;">Dialogue</h3>
                   ${(p.dialogue_lines || []).sort((a,b)=>a.sort_order-b.sort_order).map((line) => dialogueRow(p, line)).join("") || '<div class="hint">No dialogue lines yet.</div>'}
@@ -676,7 +749,7 @@
                   <div class="field"><label>Title</label><input id="track-title-${t.id}" value="${esc(t.title)}" /></div>
                   <div class="field"><label>Mood</label><input id="track-mood-${t.id}" value="${esc(t.mood || "")}" /></div>
                 </div>
-                ${t.audio_url ? `<audio controls src="${esc(withApi(t.audio_url))}" style="width:100%;"></audio>` : ""}
+                ${t.audio_url ? `<audio controls src="${esc(assetUrl(t.audio_url))}" style="width:100%;"></audio>` : ""}
                 <div class="actions">
                   <button class="btn" data-action="save-track" data-id="${t.id}">Save Track</button>
                   <button class="btn" data-action="generate-music" data-id="${t.id}">Generate Music</button>
@@ -851,6 +924,7 @@
 
         try {
           if (action === "reload-stories") await loadStories();
+          if (action === "load-voices") await loadVoices();
           if (action === "disconnect") disconnectChannel();
           if (action === "create-story") await createStory();
           if (action === "pick-story") await selectStory(node.dataset.storyId);
@@ -871,10 +945,11 @@
           }
 
           if (action === "add-character") {
+            const fallbackVoiceId = (state.voiceOptions[0] && state.voiceOptions[0].id) || "";
             await push("add_character", {
               name: $("newCharName").value,
               visual_description: $("newCharDesc").value,
-              voice_id: $("newCharVoice").value,
+              voice_id: $("newCharVoice").value || fallbackVoiceId,
               voice_provider: "elevenlabs"
             });
           }
@@ -916,6 +991,11 @@
           if (action === "page-down") await reorderPages(Number(node.dataset.index), "down");
           if (action === "generate-scene") await push("generate_scene", { page_id: node.dataset.id });
           if (action === "generate-narration") await push("generate_narration_audio", { page_id: node.dataset.id });
+          if (action === "generate-page-dialogue") {
+            const pageId = node.dataset.id;
+            const lineCount = Number($(`page-dialogue-count-${pageId}`)?.value || 3);
+            await push("generate_dialogue", { page_id: pageId, line_count: lineCount });
+          }
 
           if (action === "add-line") {
             const pageId = node.dataset.pageId;

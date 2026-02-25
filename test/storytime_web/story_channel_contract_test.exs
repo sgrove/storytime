@@ -53,4 +53,9 @@ defmodule StorytimeWeb.StoryChannelContractTest do
       assert MapSet.member?(declared, event), "missing required broadcast event #{event}"
     end
   end
+
+  test "extended client event for dialogue generation is declared" do
+    declared = StoryChannel.required_client_events() |> MapSet.new()
+    assert MapSet.member?(declared, "generate_dialogue")
+  end
 end
