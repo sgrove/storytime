@@ -29,6 +29,7 @@ defmodule StorytimeWeb.StoryChannel do
     "delete_generation_job",
     "prune_generation_jobs",
     "generate_all",
+    "deploy_preflight",
     "deploy_story"
   ]
 
@@ -394,6 +395,16 @@ defmodule StorytimeWeb.StoryChannel do
   end
 
   @impl true
+  def handle_in("deploy_preflight", payload, socket) do
+    with {:ok, subdomain} <- required_field(payload, "subdomain"),
+         {:ok, result} <- Generation.deploy_preflight(socket.assigns.story_id, subdomain) do
+      {:reply, {:ok, result}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, normalize_error(reason)}, socket}
+    end
+  end
+
+  @impl true
   def handle_in(event, _payload, socket) do
     {:reply, {:error, %{error: "unsupported_event", event: event}}, socket}
   end
@@ -430,6 +441,7 @@ defmodule StorytimeWeb.StoryChannel do
   defp normalize_error({:missing_field, key}), do: %{error: "missing_field", field: key}
   defp normalize_error(:invalid_page_order), do: %{error: "invalid_page_order"}
   defp normalize_error(:invalid_subdomain), do: %{error: "invalid_subdomain"}
+  defp normalize_error(:subdomain_taken), do: %{error: "subdomain_taken"}
   defp normalize_error(:story_missing_content), do: %{error: "story_missing_content"}
   defp normalize_error(:nothing_to_generate), do: %{error: "nothing_to_generate"}
   defp normalize_error(:retry_not_supported), do: %{error: "retry_not_supported"}

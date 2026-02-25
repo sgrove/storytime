@@ -104,6 +104,8 @@ defmodule Storytime.Workers.DeployWorker do
   @doc false
   def non_retryable_reason?(:story_not_found), do: true
   def non_retryable_reason?(:invalid_subdomain), do: true
+  def non_retryable_reason?(:subdomain_taken), do: true
+  def non_retryable_reason?(:render_service_shape_invalid), do: true
   def non_retryable_reason?(:reader_template_not_found), do: true
   def non_retryable_reason?(:missing_render_api_key), do: true
   def non_retryable_reason?({:missing_arg, _}), do: true

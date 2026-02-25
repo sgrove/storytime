@@ -57,4 +57,29 @@ defmodule Storytime.Deploy.RenderDeployTest do
       assert :invalid = RenderDeploy.classify_deploy_status(123)
     end
   end
+
+  describe "owner_story_id_from_env_vars/1" do
+    test "prefers STORYTIME_STORY_ID and falls back to VITE_STORY_ID" do
+      env_vars = [
+        %{"envVar" => %{"key" => "VITE_STORY_ID", "value" => "story-vite"}},
+        %{"envVar" => %{"key" => "STORYTIME_STORY_ID", "value" => "story-owned"}}
+      ]
+
+      assert "story-owned" = RenderDeploy.owner_story_id_from_env_vars(env_vars)
+    end
+
+    test "returns nil for missing or malformed env var rows" do
+      assert is_nil(RenderDeploy.owner_story_id_from_env_vars([]))
+      assert is_nil(RenderDeploy.owner_story_id_from_env_vars([%{"foo" => "bar"}]))
+      assert is_nil(RenderDeploy.owner_story_id_from_env_vars(nil))
+    end
+  end
+
+  describe "availability_for_story/2" do
+    test "classifies owned and taken subdomains" do
+      assert :owned = RenderDeploy.availability_for_story("story-1", "story-1")
+      assert :taken = RenderDeploy.availability_for_story("story-2", "story-1")
+      assert :taken = RenderDeploy.availability_for_story(nil, "story-1")
+    end
+  end
 end

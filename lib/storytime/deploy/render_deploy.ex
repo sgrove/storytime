@@ -4,6 +4,8 @@ defmodule Storytime.Deploy.RenderDeploy do
   """
 
   @api_base "https://api.render.com/v1"
+  @subdomain_regex ~r/^[a-z0-9](?:[a-z0-9-]{1,40}[a-z0-9])?$/
+  @service_name_prefix "storytime-"
 
   @spec create_story_site(map(), String.t()) :: {:ok, map()} | {:error, term()}
   def create_story_site(story, subdomain) when is_map(story) and is_binary(subdomain) do
@@ -12,14 +14,55 @@ defmodule Storytime.Deploy.RenderDeploy do
          {:ok, services} <- list_services(api_key),
          {:ok, template} <- resolve_template_service(services),
          payload <- create_payload(story, subdomain, template),
-         {:ok, result} <- upsert_service(api_key, services, payload, subdomain),
+         {:ok, result} <- upsert_service(api_key, services, payload, story),
          {:ok, final_url} <- ensure_url(result) do
       {:ok, %{site_id: result.service_id, deploy_id: result.deploy_id, url: final_url}}
     end
   end
 
+  @spec preflight_story_site(map(), String.t()) :: {:ok, map()} | {:error, term()}
+  def preflight_story_site(story, subdomain) when is_map(story) and is_binary(subdomain) do
+    story_id = story_field(story, :id)
+    target_name = service_name(subdomain)
+
+    with :ok <- validate_subdomain(subdomain),
+         {:ok, api_key} <- fetch_api_key(),
+         {:ok, services} <- list_services(api_key) do
+      case find_static_service_by_name(services, target_name) do
+        nil ->
+          {:ok,
+           %{
+             subdomain: subdomain,
+             service_name: target_name,
+             availability: :available,
+             available: true
+           }}
+
+        %{"id" => service_id} = service ->
+          with {:ok, env_vars} <- fetch_service_env_vars(api_key, service_id) do
+            owner_story_id = owner_story_id_from_env_vars(env_vars)
+            availability = availability_for_story(owner_story_id, story_id)
+
+            {:ok,
+             %{
+               subdomain: subdomain,
+               service_name: target_name,
+               service_id: service_id,
+               service_slug: service["slug"],
+               owner_story_id: owner_story_id,
+               availability: availability,
+               available: availability == :owned
+             }}
+          end
+
+        _service ->
+          {:error, :render_service_shape_invalid}
+      end
+    end
+  end
+
   defp validate_subdomain(subdomain) do
-    if Regex.match?(~r/^[a-z0-9](?:[a-z0-9-]{1,40}[a-z0-9])?$/, subdomain) do
+    if Regex.match?(@subdomain_regex, subdomain) do
       :ok
     else
       {:error, :invalid_subdomain}
@@ -68,7 +111,7 @@ defmodule Storytime.Deploy.RenderDeploy do
   end
 
   defp create_payload(story, subdomain, template) do
-    service_name = "storytime-#{subdomain}"
+    service_name = service_name(subdomain)
 
     %{
       "type" => "static_site",
@@ -90,12 +133,12 @@ defmodule Storytime.Deploy.RenderDeploy do
     }
   end
 
-  defp upsert_service(api_key, services, payload, subdomain) do
+  defp upsert_service(api_key, services, payload, story) do
     target_name = payload["name"]
 
-    case Enum.find(services, &(&1["name"] == target_name and &1["type"] == "static_site")) do
+    case find_static_service_by_name(services, target_name) do
       nil -> create_service(api_key, payload)
-      service -> update_existing(api_key, service, payload, subdomain)
+      service -> update_existing(api_key, service, payload, story)
     end
   end
 
@@ -115,6 +158,9 @@ defmodule Storytime.Deploy.RenderDeploy do
            }}
         end
 
+      {:ok, %{status: 409}} ->
+        {:error, :subdomain_taken}
+
       {:ok, %{status: status, body: body}} ->
         {:error, {:render_create_service_failed, status, body}}
 
@@ -123,10 +169,14 @@ defmodule Storytime.Deploy.RenderDeploy do
     end
   end
 
-  defp update_existing(api_key, service, payload, _subdomain) do
+  defp update_existing(api_key, service, payload, story) do
     service_id = service["id"]
+    story_id = story_field(story, :id)
 
-    with :ok <- put_env_vars(api_key, service_id, payload["envVars"]),
+    with {:ok, current_env_vars} <- fetch_service_env_vars(api_key, service_id),
+         owner_story_id <- owner_story_id_from_env_vars(current_env_vars),
+         :ok <- ensure_story_ownership(owner_story_id, story_id),
+         :ok <- put_env_vars(api_key, service_id, payload["envVars"]),
          :ok <- patch_service_details(api_key, service_id, payload),
          {:ok, deploy_id} <- trigger_deploy(api_key, service_id),
          {:ok, _} <- maybe_wait_for_deploy(api_key, service_id, deploy_id) do
@@ -147,7 +197,6 @@ defmodule Storytime.Deploy.RenderDeploy do
         "buildCommand" =>
           get_in(payload, ["serviceDetails", "buildCommand"]) || runtime_config_build_command(),
         "publishPath" => get_in(payload, ["serviceDetails", "publishPath"]),
-        "routes" => get_in(payload, ["serviceDetails", "routes"]),
         "pullRequestPreviewsEnabled" => "no"
       }
     }
@@ -170,6 +219,19 @@ defmodule Storytime.Deploy.RenderDeploy do
       {:ok, %{status: 200}} -> :ok
       {:ok, %{status: status, body: body}} -> {:error, {:render_env_vars_failed, status, body}}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp fetch_service_env_vars(api_key, service_id) do
+    case Req.get("#{@api_base}/services/#{service_id}/env-vars", headers: auth_headers(api_key)) do
+      {:ok, %{status: 200, body: body}} when is_list(body) ->
+        {:ok, body}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:render_env_vars_read_failed, status, body}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -268,6 +330,40 @@ defmodule Storytime.Deploy.RenderDeploy do
   def classify_deploy_status(status) when is_binary(status) and status != "", do: :pending
   def classify_deploy_status(_), do: :invalid
 
+  @doc false
+  @spec owner_story_id_from_env_vars(term()) :: String.t() | nil
+  def owner_story_id_from_env_vars(env_vars) when is_list(env_vars) do
+    env_map =
+      env_vars
+      |> Enum.reduce(%{}, fn row, acc ->
+        env = if is_map(row), do: Map.get(row, "envVar", row), else: nil
+
+        if is_map(env) and is_binary(env["key"]) do
+          Map.put(acc, env["key"], env["value"])
+        else
+          acc
+        end
+      end)
+
+    first_present([
+      Map.get(env_map, "STORYTIME_STORY_ID"),
+      Map.get(env_map, "VITE_STORY_ID")
+    ])
+  end
+
+  def owner_story_id_from_env_vars(_), do: nil
+
+  @doc false
+  @spec availability_for_story(String.t() | nil, String.t() | nil) :: :owned | :taken
+  def availability_for_story(nil, _story_id), do: :taken
+
+  def availability_for_story(owner_story_id, story_id)
+      when is_binary(owner_story_id) and is_binary(story_id) do
+    if owner_story_id == story_id, do: :owned, else: :taken
+  end
+
+  def availability_for_story(_owner_story_id, _story_id), do: :taken
+
   defp ensure_url(%{url: url}) when is_binary(url) and url != "", do: {:ok, url}
 
   defp ensure_url(%{slug: slug}) when is_binary(slug) and slug != "" do
@@ -280,14 +376,18 @@ defmodule Storytime.Deploy.RenderDeploy do
 
   defp env_vars(story) do
     base_url = StorytimeWeb.Endpoint.url()
+    story_id = story_field(story, :id) || ""
+    story_slug = story_field(story, :slug) || ""
 
     [
       %{"key" => "VITE_API_HTTP_URL", "value" => base_url},
-      %{"key" => "VITE_STORY_ID", "value" => story.id},
-      %{"key" => "VITE_STORY_SLUG", "value" => story.slug},
-      %{"key" => "VITE_STORY_PACK_URL", "value" => "#{base_url}/api/stories/#{story.id}/pack"},
+      %{"key" => "VITE_STORY_ID", "value" => story_id},
+      %{"key" => "VITE_STORY_SLUG", "value" => story_slug},
+      %{"key" => "VITE_STORY_PACK_URL", "value" => "#{base_url}/api/stories/#{story_id}/pack"},
       %{"key" => "VITE_INSTANT_APP_ID", "value" => System.get_env("INSTANT_APP_ID") || ""},
-      %{"key" => "VITE_READER_ALLOW_PACK_OVERRIDE", "value" => "false"}
+      %{"key" => "VITE_READER_ALLOW_PACK_OVERRIDE", "value" => "false"},
+      %{"key" => "STORYTIME_STORY_ID", "value" => story_id},
+      %{"key" => "STORYTIME_STORY_SLUG", "value" => story_slug}
     ]
   end
 
@@ -300,6 +400,27 @@ defmodule Storytime.Deploy.RenderDeploy do
   end
 
   defp runtime_config_build_command do
-    ~s|bash -lc 'printf "{\\"apiBase\\":\\"%s\\",\\"storyId\\":\\"%s\\",\\"storySlug\\":\\"%s\\",\\"packUrl\\":\\"%s\\",\\"instantAppId\\":\\"%s\\",\\"allowPackOverride\\":%s}\\n" "$VITE_API_HTTP_URL" "$VITE_STORY_ID" "$VITE_STORY_SLUG" "$VITE_STORY_PACK_URL" "$VITE_INSTANT_APP_ID" "${VITE_READER_ALLOW_PACK_OVERRIDE:-false}" > reader/runtime-config.json'|
+    ~s(bash -lc 'mkdir -p reader && printf "{\\"apiBase\\":\\"%s\\",\\"storyId\\":\\"%s\\",\\"storySlug\\":\\"%s\\",\\"packUrl\\":\\"%s\\",\\"instantAppId\\":\\"%s\\",\\"allowPackOverride\\":%s}\\n" "$VITE_API_HTTP_URL" "$VITE_STORY_ID" "$VITE_STORY_SLUG" "$VITE_STORY_PACK_URL" "$VITE_INSTANT_APP_ID" "${VITE_READER_ALLOW_PACK_OVERRIDE:-false}" | tee reader/runtime-config.json runtime-config.json >/dev/null')
+  end
+
+  defp service_name(subdomain), do: "#{@service_name_prefix}#{subdomain}"
+
+  defp find_static_service_by_name(services, service_name) do
+    Enum.find(services, &(&1["name"] == service_name and &1["type"] == "static_site"))
+  end
+
+  defp ensure_story_ownership(owner_story_id, story_id)
+       when is_binary(owner_story_id) and is_binary(story_id) do
+    if owner_story_id == story_id, do: :ok, else: {:error, :subdomain_taken}
+  end
+
+  defp ensure_story_ownership(_owner_story_id, _story_id), do: {:error, :subdomain_taken}
+
+  defp story_field(story, key) when is_map(story) and is_atom(key) do
+    Map.get(story, key) || Map.get(story, Atom.to_string(key))
+  end
+
+  defp first_present(values) when is_list(values) do
+    Enum.find(values, &(is_binary(&1) and &1 != ""))
   end
 end

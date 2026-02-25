@@ -6,6 +6,8 @@ defmodule Storytime.Workers.DeployWorkerTest do
   test "non_retryable_reason identifies validation/configuration failures" do
     assert DeployWorker.non_retryable_reason?(:missing_render_api_key)
     assert DeployWorker.non_retryable_reason?(:reader_template_not_found)
+    assert DeployWorker.non_retryable_reason?(:subdomain_taken)
+    assert DeployWorker.non_retryable_reason?(:render_service_shape_invalid)
     assert DeployWorker.non_retryable_reason?({:missing_field, "subdomain"})
     assert DeployWorker.non_retryable_reason?({:render_create_service_failed, 422, %{}})
     assert DeployWorker.non_retryable_reason?({:deploy_failed, %{status: "failed"}})
