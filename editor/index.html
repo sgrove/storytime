@@ -2005,6 +2005,17 @@
                 </div>
                 <div class="field"><label>Scene Description</label><textarea id="page-scene-${p.id}">${esc(p.scene_description || "")}</textarea></div>
                 <div class="field"><label>Narration</label><textarea id="page-narration-${p.id}">${esc(p.narration_text || "")}</textarea></div>
+                ${p.narration_audio_url ? `
+                  <div class="card" style="background:#fff2d4;">
+                    <label>Narration Audio</label>
+                    <audio controls src="${esc(assetUrl(p.narration_audio_url))}" style="width:100%;margin-top:6px;"></audio>
+                    ${p.narration_timings_url ? `
+                      <div class="hint" style="margin-top:6px;">
+                        Timings: <a href="${esc(assetUrl(p.narration_timings_url))}" target="_blank">open JSON</a>
+                      </div>
+                    ` : `<div class="hint" style="margin-top:6px;color:#7a3f21;">Narration timings file is missing.</div>`}
+                  </div>
+                ` : ""}
                 ${p.scene_image_url ? `<img src="${esc(assetUrl(p.scene_image_url))}" style="width:100%;max-height:220px;object-fit:contain;border-radius:10px;border:1px solid #cfb792;background:#f1dfbc;" />` : ""}
                 <div class="actions">
                   <button class="btn" data-action="save-page" data-id="${p.id}">Save Page</button>
