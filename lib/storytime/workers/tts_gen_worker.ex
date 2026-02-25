@@ -67,12 +67,19 @@ defmodule Storytime.Workers.TtsGenWorker do
             {:ok, %{url: audio_url, timings_url: timings_url, provider: provider}}
           else
             {:error, reason} ->
-              handle_failure(args, reason)
+              resolve_synthesis_error(
+                args,
+                reason,
+                story_id,
+                type,
+                target_id,
+                generation_job_id
+              )
           end
       end
     else
       {:error, reason} ->
-        handle_failure(args, reason)
+        resolve_setup_error(args, reason)
     end
   end
 
@@ -300,6 +307,60 @@ defmodule Storytime.Workers.TtsGenWorker do
 
     {:error, reason}
   end
+
+  defp resolve_synthesis_error(args, :empty_text, story_id, type, target_id, generation_job_id) do
+    complete_without_audio(story_id, type, target_id, generation_job_id, "empty_text", args)
+  end
+
+  defp resolve_synthesis_error(args, reason, _story_id, _type, _target_id, _generation_job_id) do
+    if non_retryable_reason?(reason) do
+      _ = handle_failure(args, reason)
+      {:discard, reason}
+    else
+      handle_failure(args, reason)
+    end
+  end
+
+  defp resolve_setup_error(args, reason) do
+    if non_retryable_reason?(reason) do
+      _ = handle_failure(args, reason)
+      {:discard, reason}
+    else
+      handle_failure(args, reason)
+    end
+  end
+
+  defp complete_without_audio(story_id, type, target_id, generation_job_id, skip_reason, args) do
+    with :ok <- mark_completed(generation_job_id) do
+      _ = Stories.maybe_mark_story_ready(story_id)
+      broadcast_progress(story_id, type, target_id, generation_job_id, 100)
+
+      StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "generation_completed", %{
+        story_id: story_id,
+        job_type: map_job_type(type),
+        target_id: target_id,
+        job_id: generation_job_id,
+        skipped: true,
+        skipped_reason: skip_reason
+      })
+
+      {:ok, %{skipped: true, reason: skip_reason}}
+    else
+      {:error, reason} -> handle_failure(args, reason)
+    end
+  end
+
+  @doc false
+  def non_retryable_reason?(:empty_text), do: true
+  def non_retryable_reason?(:missing_character_voice_id), do: true
+  def non_retryable_reason?(:missing_voice_id), do: true
+  def non_retryable_reason?(:missing_elevenlabs_api_key), do: true
+  def non_retryable_reason?(:unsupported_tts_type), do: true
+  def non_retryable_reason?(:dialogue_not_found), do: true
+  def non_retryable_reason?(:page_not_found), do: true
+  def non_retryable_reason?(:story_not_found), do: true
+  def non_retryable_reason?({:missing_arg, _key}), do: true
+  def non_retryable_reason?(_reason), do: false
 
   defp map_job_type("dialogue"), do: "dialogue_tts"
   defp map_job_type("narration"), do: "narration_tts"

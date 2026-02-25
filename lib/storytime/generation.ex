@@ -86,11 +86,16 @@ defmodule Storytime.Generation do
     with story when not is_nil(story) <- Stories.load_story_graph(story_id) do
       jobs =
         Enum.flat_map(story.pages, fn p ->
-          narration = if blank?(p.narration_audio_url), do: [{:narration_tts, p.id}], else: []
+          narration =
+            if blank?(p.narration_audio_url) and text_present?(p.narration_text),
+              do: [{:narration_tts, p.id}],
+              else: []
 
           dialogue =
             Enum.flat_map(p.dialogue_lines, fn line ->
-              if blank?(line.audio_url), do: [{:dialogue_tts, line.id}], else: []
+              if blank?(line.audio_url) and text_present?(line.text),
+                do: [{:dialogue_tts, line.id}],
+                else: []
             end)
 
           narration ++ dialogue
@@ -259,6 +264,9 @@ defmodule Storytime.Generation do
   defp collect_created_jobs([{:error, reason} | _tail], _acc), do: {:error, reason}
 
   defp blank?(value), do: value in [nil, ""]
+
+  defp text_present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp text_present?(_value), do: false
 
   defp has_voiced_characters?(story) do
     Enum.any?(story.characters || [], fn character -> not blank?(character.voice_id) end)

@@ -19,4 +19,12 @@ defmodule Storytime.Workers.TtsGenWorkerTest do
     assert {"voice-123", "eleven_multilingual_v2"} =
              TtsGenWorker.dialogue_voice_ids(%{character: character})
   end
+
+  test "non_retryable_reason identifies validation/config issues" do
+    assert TtsGenWorker.non_retryable_reason?(:empty_text)
+    assert TtsGenWorker.non_retryable_reason?(:missing_character_voice_id)
+    assert TtsGenWorker.non_retryable_reason?(:missing_elevenlabs_api_key)
+    assert TtsGenWorker.non_retryable_reason?({:missing_arg, "story_id"})
+    refute TtsGenWorker.non_retryable_reason?({:elevenlabs_error, 500, %{}})
+  end
 end

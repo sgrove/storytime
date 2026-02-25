@@ -22,6 +22,7 @@
 - [x] Editor now supports ElevenLabs voice-picking via `/api/voices/elevenlabs`, one-click `Generate Dialogue + Voices`, inline dialogue audio playback, and job/progress indicators.
 - [x] Generation queue diagnostics now include dialogue_tts-specific context (speaker/page/text preview), queue position, age, Oban state/attempt details, and retry timing.
 - [x] Queue diagnostics now mark Oban-discarded pending jobs as failed-at-runtime and provide actionable retry detail.
+- [x] TTS worker now treats `empty_text` as skipped-complete and prevents retry loops for non-retryable validation/config errors.
 - [x] FR-012 broadcast payload minimum-key contract is now explicitly declared in `StoryChannel.required_broadcast_payload_keys/0` and regression-tested.
 - [x] Editor queue now supports `retry_generation` for failed non-deploy jobs via channel event and retry action button.
 - [x] Editor generation queue includes active/failed filtering, text search, and event feed clearing for faster triage.
