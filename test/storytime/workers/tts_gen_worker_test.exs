@@ -27,4 +27,29 @@ defmodule Storytime.Workers.TtsGenWorkerTest do
     assert TtsGenWorker.non_retryable_reason?({:missing_arg, "story_id"})
     refute TtsGenWorker.non_retryable_reason?({:elevenlabs_error, 500, %{}})
   end
+
+  test "force payload bypasses cached dialogue audio reuse" do
+    line = %{
+      audio_url: "https://assets.example/dialogue.mp3",
+      timings_url: "/assets/dialogue.json"
+    }
+
+    assert {:ok, "https://assets.example/dialogue.mp3", "/assets/dialogue.json"} =
+             TtsGenWorker.reusable_audio_urls("dialogue", line, %{
+               "payload" => %{"force" => false}
+             })
+
+    assert :none =
+             TtsGenWorker.reusable_audio_urls("dialogue", line, %{
+               "payload" => %{"force" => true}
+             })
+  end
+
+  test "force payload parser accepts boolean/string/integer truthy values" do
+    assert TtsGenWorker.force_payload?(%{"payload" => %{"force" => true}})
+    assert TtsGenWorker.force_payload?(%{"payload" => %{"force" => "true"}})
+    assert TtsGenWorker.force_payload?(%{"payload" => %{"force" => 1}})
+    refute TtsGenWorker.force_payload?(%{"payload" => %{"force" => false}})
+    refute TtsGenWorker.force_payload?(%{"payload" => %{}})
+  end
 end

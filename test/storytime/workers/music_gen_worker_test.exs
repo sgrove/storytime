@@ -42,4 +42,37 @@ defmodule Storytime.Workers.MusicGenWorkerTest do
     refute MusicGenWorker.non_retryable_reason?(:sonauto_timeout)
     refute MusicGenWorker.non_retryable_reason?({:sonauto_error, 503, %{}})
   end
+
+  test "force payload bypasses cached track audio reuse" do
+    track = %{audio_url: "https://assets.example/music.mp3"}
+
+    assert {:ok, "https://assets.example/music.mp3"} =
+             MusicGenWorker.reusable_track_audio(track, %{"payload" => %{"force" => false}})
+
+    assert :none =
+             MusicGenWorker.reusable_track_audio(track, %{"payload" => %{"force" => true}})
+  end
+
+  test "force payload parser accepts boolean/string/integer truthy values" do
+    assert MusicGenWorker.force_payload?(%{"payload" => %{"force" => true}})
+    assert MusicGenWorker.force_payload?(%{"payload" => %{"force" => "true"}})
+    assert MusicGenWorker.force_payload?(%{"payload" => %{"force" => 1}})
+    refute MusicGenWorker.force_payload?(%{"payload" => %{"force" => false}})
+    refute MusicGenWorker.force_payload?(%{"payload" => %{}})
+  end
+
+  test "invalid_tags_error detects Sonauto invalid-tag validation failures" do
+    body = %{
+      "detail" => [
+        %{
+          "msg" => "Value error, Invalid tags: background, storybook",
+          "type" => "value_error"
+        }
+      ]
+    }
+
+    assert MusicGenWorker.invalid_tags_error?(body)
+    refute MusicGenWorker.invalid_tags_error?(%{"detail" => [%{"msg" => "other error"}]})
+    refute MusicGenWorker.invalid_tags_error?(%{})
+  end
 end

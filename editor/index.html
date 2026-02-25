@@ -335,6 +335,7 @@
             <button class="btn flat" data-action="queue-filter" data-filter="all">All</button>
             <button class="btn flat" data-action="queue-filter" data-filter="active">Active</button>
             <button class="btn flat" data-action="queue-filter" data-filter="failed">Failed</button>
+            <button class="btn flat" data-action="queue-latest" id="queueLatestToggle">Latest per target</button>
             <input id="queueSearch" placeholder="Filter text (job type / speaker / target)" style="max-width:280px;" />
             <button class="btn flat" data-action="clear-events">Clear Events</button>
           </div>
@@ -369,6 +370,7 @@
         jobProgress: {},
         queueFilter: "all",
         queueSearch: "",
+        queueLatestOnly: true,
         characterVoicePreview: {},
         voiceOptions: [],
         voiceLoadError: null
@@ -658,6 +660,24 @@
         return (state.jobs || []).some((job) => job.job_type === jobType && isActiveStatus(job.status));
       }
 
+      function queueHistoryKey(job) {
+        return `${job.job_type || "unknown"}:${job.target_id || "none"}`;
+      }
+
+      function latestJobsPerTarget(jobs) {
+        const seen = new Set();
+        const latest = [];
+
+        for (const job of jobs) {
+          const key = queueHistoryKey(job);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          latest.push(job);
+        }
+
+        return latest;
+      }
+
       function hasActiveDialogueJobForPage(page) {
         const lineIds = new Set((page.dialogue_lines || []).map((line) => line.id));
 
@@ -862,6 +882,7 @@
         const ttsProgress = progressFor(ttsJob);
         const ttsStatus = ttsJob ? `${ttsJob.status}${ttsProgress !== null ? ` (${ttsProgress}%)` : ""}` : null;
         const ttsBusy = ttsJob && isActiveStatus(ttsJob.status);
+        const voiceActionLabel = line.audio_url ? "Regenerate Voice" : "Generate Voice";
 
         return `
           <div class="card" style="background:#fff5de;">
@@ -879,7 +900,7 @@
             ${line.audio_url ? `<audio controls src="${esc(assetUrl(line.audio_url))}" style="width:100%;margin-bottom:8px;"></audio>` : ""}
             <div class="actions">
               <button class="btn" data-action="save-line" data-id="${line.id}">Save Line</button>
-              <button class="btn" data-action="generate-line" data-id="${line.id}" ${ttsBusy ? "disabled" : ""}>${ttsBusy ? "Generating..." : "Generate Voice"}</button>
+              <button class="btn" data-action="generate-line" data-id="${line.id}" ${ttsBusy ? "disabled" : ""}>${ttsBusy ? "Generating..." : voiceActionLabel}</button>
               <button class="btn warn" data-action="delete-line" data-id="${line.id}">Delete</button>
             </div>
           </div>
@@ -903,6 +924,12 @@
               const dialogueBusy = hasActiveDialogueJobForPage(p);
               const dialogueSummary = dialogueTtsSummaryForPage(p);
               const canGenerateDialogue = voicedCharacterCount > 0 && !dialogueBusy;
+              const hasDialogueLines = (p.dialogue_lines || []).length > 0;
+              const sceneActionLabel = p.scene_image_url ? "Regenerate Scene" : "Generate Scene";
+              const narrationActionLabel =
+                p.narration_audio_url ? "Regenerate Narration" : "Generate Narration";
+              const dialogueActionLabel =
+                hasDialogueLines ? "Regenerate Dialogue + Voices" : "Generate Dialogue + Voices";
 
               return `
               <div class="card">
@@ -918,10 +945,10 @@
                   <button class="btn" data-action="save-page" data-id="${p.id}">Save Page</button>
                   <button class="btn" data-action="page-up" data-index="${idx}">Move Up</button>
                   <button class="btn" data-action="page-down" data-index="${idx}">Move Down</button>
-                  <button class="btn" data-action="generate-scene" data-id="${p.id}">Generate Scene</button>
-                  <button class="btn" data-action="generate-narration" data-id="${p.id}">Generate Narration</button>
+                  <button class="btn" data-action="generate-scene" data-id="${p.id}">${sceneActionLabel}</button>
+                  <button class="btn" data-action="generate-narration" data-id="${p.id}">${narrationActionLabel}</button>
                   <input id="page-dialogue-count-${p.id}" type="number" min="1" max="8" value="${Math.max((currentCharacters().length || 2), 2)}" style="max-width:84px;" />
-                  <button class="btn ok" data-action="generate-page-dialogue" data-id="${p.id}" ${canGenerateDialogue ? "" : "disabled"}>${dialogueBusy ? "Generating..." : "Generate Dialogue + Voices"}</button>
+                  <button class="btn ok" data-action="generate-page-dialogue" data-id="${p.id}" ${canGenerateDialogue ? "" : "disabled"}>${dialogueBusy ? "Generating..." : dialogueActionLabel}</button>
                   <button class="btn warn" data-action="delete-page" data-id="${p.id}">Delete</button>
                 </div>
                 ${(() => {
@@ -974,7 +1001,9 @@
               </div>
               <button class="btn ok" data-action="add-track">Add Track</button>
             </div>
-            ${tracks.map((t) => `
+            ${tracks.map((t) => {
+              const musicActionLabel = t.audio_url ? "Regenerate Music" : "Generate Music";
+              return `
               <div class="card">
                 <h3>${esc(t.title)}</h3>
                 <div class="row">
@@ -984,7 +1013,7 @@
                 ${t.audio_url ? `<audio controls src="${esc(assetUrl(t.audio_url))}" style="width:100%;"></audio>` : ""}
                 <div class="actions">
                   <button class="btn" data-action="save-track" data-id="${t.id}">Save Track</button>
-                  <button class="btn" data-action="generate-music" data-id="${t.id}">Generate Music</button>
+                  <button class="btn" data-action="generate-music" data-id="${t.id}">${musicActionLabel}</button>
                   <button class="btn warn" data-action="delete-track" data-id="${t.id}">Delete</button>
                 </div>
                 <div class="stack" style="margin-top:10px;">
@@ -1009,7 +1038,8 @@
                   </div>
                 </div>
               </div>
-            `).join("")}
+            `;
+            }).join("")}
           </div>
         `;
       }
@@ -1075,21 +1105,34 @@
           return;
         }
 
+        const scopedJobs = state.queueLatestOnly ? latestJobsPerTarget(state.jobs) : state.jobs;
+        const hiddenHistoryCount = Math.max(0, state.jobs.length - scopedJobs.length);
+
         const counts = { pending: 0, running: 0, completed: 0, failed: 0 };
-        for (const job of state.jobs) {
+        for (const job of scopedJobs) {
           const status = job.status || "pending";
           counts[status] = (counts[status] || 0) + 1;
         }
-        const dialoguePending = state.jobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "pending").length;
-        const dialogueRunning = state.jobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "running").length;
-        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0} • dialogue_tts pending ${dialoguePending} running ${dialogueRunning} • filter ${state.queueFilter}`;
+        const dialoguePending = scopedJobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "pending").length;
+        const dialogueRunning = scopedJobs.filter((job) => job.job_type === "dialogue_tts" && job.status === "running").length;
+        const historyLabel = state.queueLatestOnly
+          ? `latest-only on${hiddenHistoryCount > 0 ? ` (${hiddenHistoryCount} historical hidden)` : ""}`
+          : "latest-only off";
+        summary.textContent = `pending ${counts.pending || 0} • running ${counts.running || 0} • completed ${counts.completed || 0} • failed ${counts.failed || 0} • dialogue_tts pending ${dialoguePending} running ${dialogueRunning} • filter ${state.queueFilter} • ${historyLabel}`;
 
         document.querySelectorAll('[data-action="queue-filter"]').forEach((button) => {
           button.classList.toggle("active", button.dataset.filter === state.queueFilter);
         });
 
+        const latestToggle = $("queueLatestToggle");
+        if (latestToggle) {
+          latestToggle.classList.toggle("active", state.queueLatestOnly);
+          latestToggle.textContent =
+            state.queueLatestOnly ? "Latest per target: ON" : "Latest per target: OFF";
+        }
+
         const search = (state.queueSearch || "").trim().toLowerCase();
-        const filteredJobs = state.jobs.filter((job) => {
+        const filteredJobs = scopedJobs.filter((job) => {
           if (state.queueFilter === "active" && !isActiveStatus(job.status)) return false;
           if (state.queueFilter === "failed" && job.status !== "failed") return false;
           if (!search) return true;
@@ -1297,12 +1340,27 @@
           if (action === "delete-page") await push("delete_page", { id: node.dataset.id });
           if (action === "page-up") await reorderPages(Number(node.dataset.index), "up");
           if (action === "page-down") await reorderPages(Number(node.dataset.index), "down");
-          if (action === "generate-scene") await push("generate_scene", { page_id: node.dataset.id });
-          if (action === "generate-narration") await push("generate_narration_audio", { page_id: node.dataset.id });
+          if (action === "generate-scene") {
+            const id = node.dataset.id;
+            const page = currentPages().find((entry) => entry.id === id);
+            const payload = { page_id: id };
+            if (page && page.scene_image_url) payload.force = true;
+            await push("generate_scene", payload);
+          }
+          if (action === "generate-narration") {
+            const id = node.dataset.id;
+            const page = currentPages().find((entry) => entry.id === id);
+            const payload = { page_id: id };
+            if (page && page.narration_audio_url) payload.force = true;
+            await push("generate_narration_audio", payload);
+          }
           if (action === "generate-page-dialogue") {
             const pageId = node.dataset.id;
             const lineCount = Number($(`page-dialogue-count-${pageId}`)?.value || 3);
-            await push("generate_dialogue", { page_id: pageId, line_count: lineCount });
+            const page = currentPages().find((entry) => entry.id === pageId);
+            const payload = { page_id: pageId, line_count: lineCount };
+            if (page && (page.dialogue_lines || []).length > 0) payload.force = true;
+            await push("generate_dialogue", payload);
           }
 
           if (action === "add-line") {
@@ -1325,7 +1383,16 @@
           }
 
           if (action === "delete-line") await push("delete_dialogue_line", { id: node.dataset.id });
-          if (action === "generate-line") await push("generate_dialogue_audio", { dialogue_line_id: node.dataset.id });
+          if (action === "generate-line") {
+            const lineId = node.dataset.id;
+            const line =
+              currentPages()
+                .flatMap((page) => page.dialogue_lines || [])
+                .find((entry) => entry.id === lineId) || null;
+            const payload = { dialogue_line_id: lineId };
+            if (line && line.audio_url) payload.force = true;
+            await push("generate_dialogue_audio", payload);
+          }
 
           if (action === "add-track") {
             await push("add_music_track", {
@@ -1344,7 +1411,13 @@
           }
 
           if (action === "delete-track") await push("delete_music_track", { id: node.dataset.id });
-          if (action === "generate-music") await push("generate_music", { track_id: node.dataset.id });
+          if (action === "generate-music") {
+            const trackId = node.dataset.id;
+            const track = currentTracks().find((entry) => entry.id === trackId);
+            const payload = { track_id: trackId };
+            if (track && track.audio_url) payload.force = true;
+            await push("generate_music", payload);
+          }
 
           if (action === "add-span") {
             const trackId = node.dataset.trackId;
@@ -1376,6 +1449,11 @@
           if (action === "queue-filter") {
             refreshAfterAction = false;
             state.queueFilter = node.dataset.filter || "all";
+            renderJobs();
+          }
+          if (action === "queue-latest") {
+            refreshAfterAction = false;
+            state.queueLatestOnly = !state.queueLatestOnly;
             renderJobs();
           }
           if (action === "clear-events") {

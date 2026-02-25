@@ -20,7 +20,7 @@ defmodule Storytime.Workers.MusicGenWorker do
          {:ok, target_id} <- required_arg(args, "target_id"),
          {:ok, story} <- fetch_story(story_id),
          {:ok, track} <- find_track(story, target_id) do
-      case existing_track_audio(track) do
+      case reusable_track_audio(track, args) do
         {:ok, asset_url} ->
           complete_from_cached(story_id, target_id, generation_job_id, asset_url)
 
@@ -56,6 +56,25 @@ defmodule Storytime.Workers.MusicGenWorker do
   end
 
   def perform(args) when is_map(args), do: perform(%Oban.Job{args: args})
+
+  @doc false
+  def reusable_track_audio(track, args) do
+    if force_payload?(args) do
+      :none
+    else
+      existing_track_audio(track)
+    end
+  end
+
+  @doc false
+  def force_payload?(args) when is_map(args) do
+    payload = Map.get(args, "payload") || Map.get(args, :payload) || %{}
+
+    Map.get(payload, "force") in [true, "true", 1, "1"] or
+      Map.get(payload, :force) in [true, "true", 1, "1"]
+  end
+
+  def force_payload?(_args), do: false
 
   defp fetch_story(story_id) do
     case Stories.load_story_graph(story_id) do
@@ -95,22 +114,7 @@ defmodule Storytime.Workers.MusicGenWorker do
         {"accept", "application/json"}
       ]
 
-      create_payload = %{
-        prompt: prompt,
-        tags: sonauto_tags(prompt),
-        instrumental: true,
-        output_format: "mp3"
-      }
-
-      with {:ok, %{status: status, body: create_body}} when status in [200, 201, 202] <-
-             Req.post("#{base}/generations",
-               headers: headers,
-               json: create_payload,
-               receive_timeout: sonauto_request_timeout_ms(),
-               pool_timeout: sonauto_request_timeout_ms(),
-               connect_options: [timeout: 30_000],
-               retry: false
-             ),
+      with {:ok, create_body} <- create_sonauto_generation(base, headers, prompt),
            task_id when is_binary(task_id) <- extract_task_id(create_body),
            {:ok, audio_url} <-
              poll_sonauto_audio_url(
@@ -129,10 +133,64 @@ defmodule Storytime.Workers.MusicGenWorker do
              ) do
         {:ok, audio_bytes}
       else
-        {:ok, %{status: status, body: body}} -> {:error, {:sonauto_error, status, body}}
         {:error, reason} -> {:error, reason}
         _ -> {:error, :sonauto_unexpected_response}
       end
+    end
+  end
+
+  defp create_sonauto_generation(base, headers, prompt) do
+    with {:error, reason} <-
+           request_sonauto_generation(base, headers, build_create_payload(prompt)),
+         {:ok, body} <- retry_without_tags_if_invalid(base, headers, prompt, reason) do
+      {:ok, body}
+    else
+      {:ok, body} -> {:ok, body}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp retry_without_tags_if_invalid(base, headers, prompt, {:sonauto_error, 422, body}) do
+    if invalid_tags_error?(body) do
+      request_sonauto_generation(base, headers, build_create_payload(prompt, false))
+    else
+      {:error, {:sonauto_error, 422, body}}
+    end
+  end
+
+  defp retry_without_tags_if_invalid(_base, _headers, _prompt, reason), do: {:error, reason}
+
+  defp request_sonauto_generation(base, headers, create_payload) do
+    case Req.post("#{base}/generations",
+           headers: headers,
+           json: create_payload,
+           receive_timeout: sonauto_request_timeout_ms(),
+           pool_timeout: sonauto_request_timeout_ms(),
+           connect_options: [timeout: 30_000],
+           retry: false
+         ) do
+      {:ok, %{status: status, body: body}} when status in [200, 201, 202] ->
+        {:ok, body}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:sonauto_error, status, body}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp build_create_payload(prompt, include_tags \\ true) do
+    payload = %{
+      prompt: prompt,
+      instrumental: true,
+      output_format: "mp3"
+    }
+
+    if include_tags do
+      Map.put(payload, :tags, sonauto_tags(prompt))
+    else
+      payload
     end
   end
 
@@ -149,6 +207,23 @@ defmodule Storytime.Workers.MusicGenWorker do
   end
 
   def extract_audio_url(_), do: nil
+
+  @doc false
+  def invalid_tags_error?(%{"detail" => detail}) when is_list(detail) do
+    Enum.any?(detail, fn entry ->
+      message =
+        entry
+        |> case do
+          %{"msg" => msg} -> msg
+          %{msg: msg} -> msg
+          _ -> nil
+        end
+
+      is_binary(message) and String.contains?(String.downcase(message), "invalid tags")
+    end)
+  end
+
+  def invalid_tags_error?(_), do: false
 
   defp poll_sonauto_audio_url(_base, _headers, _task_id, 0, _sleep_ms),
     do: {:error, :sonauto_timeout}

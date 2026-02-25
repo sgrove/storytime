@@ -21,6 +21,25 @@ defmodule Storytime.Workers.TtsGenWorker do
 
   def perform(args) when is_map(args), do: perform(%Oban.Job{args: args})
 
+  @doc false
+  def reusable_audio_urls(type, item, args) do
+    if force_payload?(args) do
+      :none
+    else
+      existing_audio_urls(type, item)
+    end
+  end
+
+  @doc false
+  def force_payload?(args) when is_map(args) do
+    payload = Map.get(args, "payload") || Map.get(args, :payload) || %{}
+
+    Map.get(payload, "force") in [true, "true", 1, "1"] or
+      Map.get(payload, :force) in [true, "true", 1, "1"]
+  end
+
+  def force_payload?(_args), do: false
+
   defp do_perform(args) do
     with {:ok, generation_job_id} <- required_arg(args, "generation_job_id"),
          {:ok, story_id} <- required_arg(args, "story_id"),
@@ -28,7 +47,7 @@ defmodule Storytime.Workers.TtsGenWorker do
          {:ok, target_id} <- required_arg(args, "target_id"),
          {:ok, story} <- fetch_story(story_id),
          {:ok, item} <- fetch_target(story, type, target_id) do
-      case existing_audio_urls(type, item) do
+      case reusable_audio_urls(type, item, args) do
         {:ok, audio_url, timings_url} ->
           complete_from_cached(
             story_id,
