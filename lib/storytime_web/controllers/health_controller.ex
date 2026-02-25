@@ -21,7 +21,9 @@ defmodule StorytimeWeb.HealthController do
       env: env_check()
     }
 
-    ok? = checks.db.ok and checks.assets_disk.ok
+    # Health should gate traffic only on API ability to serve requests.
+    # Asset disk and optional env vars are surfaced as warnings.
+    ok? = checks.db.ok
 
     conn
     |> put_status(if(ok?, do: :ok, else: :service_unavailable))
@@ -68,6 +70,7 @@ defmodule StorytimeWeb.HealthController do
 
   defp health_warnings(checks) do
     warnings = []
+    warnings = if checks.assets_disk.ok, do: warnings, else: ["assets_disk_unwritable" | warnings]
     warnings = if checks.env.ok, do: warnings, else: ["missing_optional_runtime_env"]
     warnings
   end

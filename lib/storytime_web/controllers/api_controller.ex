@@ -5,7 +5,13 @@ defmodule StorytimeWeb.ApiController do
   alias Storytime.StoryPack
 
   def version(conn, _params) do
-    json(conn, %{service: "storytime-api", phase: "e2e-increment"})
+    json(conn, %{
+      service: "storytime-api",
+      phase: "e2e-increment",
+      commit: current_commit(),
+      render_service_id: System.get_env("RENDER_SERVICE_ID"),
+      render_instance_id: System.get_env("RENDER_INSTANCE_ID")
+    })
   end
 
   def stories(conn, _params) do
@@ -215,5 +221,11 @@ defmodule StorytimeWeb.ApiController do
         String.replace(acc, "%{#{key}}", to_string(val))
       end)
     end)
+  end
+
+  defp current_commit do
+    System.get_env("RENDER_GIT_COMMIT") ||
+      System.get_env("RENDER_GIT_SHA") ||
+      System.get_env("SOURCE_VERSION")
   end
 end
