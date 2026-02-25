@@ -34,7 +34,7 @@ defmodule Storytime.Workers.DeployWorker do
       {:ok, %{url: deploy.url, site_id: deploy.site_id, deploy_id: deploy.deploy_id}}
     else
       {:error, reason} ->
-        handle_failure(args, reason)
+        resolve_failure(args, reason)
     end
   end
 
@@ -67,9 +67,20 @@ defmodule Storytime.Workers.DeployWorker do
     end
   end
 
+  defp resolve_failure(args, reason) do
+    _ = handle_failure(args, reason)
+
+    if non_retryable_reason?(reason) do
+      {:discard, reason}
+    else
+      {:error, reason}
+    end
+  end
+
   defp handle_failure(args, reason) do
     generation_job_id = Map.get(args, "generation_job_id")
     story_id = Map.get(args, "story_id")
+    details = failure_details(reason)
 
     _ = status_update(generation_job_id, :failed, inspect(reason))
     if is_binary(story_id), do: Stories.set_story_status(story_id, :ready)
@@ -78,12 +89,64 @@ defmodule Storytime.Workers.DeployWorker do
       StorytimeWeb.Endpoint.broadcast("story:#{story_id}", "deploy_failed", %{
         story_id: story_id,
         job_id: generation_job_id,
-        error: inspect(reason)
+        error: details.message,
+        error_code: details.code,
+        error_category: details.category,
+        retryable: details.retryable
       })
     end
 
     {:error, reason}
   end
+
+  @doc false
+  def non_retryable_reason?(:story_not_found), do: true
+  def non_retryable_reason?(:invalid_subdomain), do: true
+  def non_retryable_reason?(:reader_template_not_found), do: true
+  def non_retryable_reason?(:missing_render_api_key), do: true
+  def non_retryable_reason?({:missing_arg, _}), do: true
+  def non_retryable_reason?({:missing_map, _}), do: true
+  def non_retryable_reason?({:missing_field, _}), do: true
+
+  def non_retryable_reason?({:render_list_services_failed, status, _}) when status in 400..499,
+    do: true
+
+  def non_retryable_reason?({:render_create_service_failed, status, _}) when status in 400..499,
+    do: true
+
+  def non_retryable_reason?({:render_env_vars_failed, status, _}) when status in 400..499,
+    do: true
+
+  def non_retryable_reason?({:render_patch_failed, status, _}) when status in 400..499, do: true
+
+  def non_retryable_reason?({:render_trigger_deploy_failed, status, _}) when status in 400..499,
+    do: true
+
+  def non_retryable_reason?({:deploy_failed, _}), do: true
+  def non_retryable_reason?(_), do: false
+
+  @doc false
+  def failure_details(reason) do
+    category =
+      cond do
+        non_retryable_reason?(reason) -> "validation_or_configuration"
+        reason == :deploy_timeout -> "timeout"
+        true -> "transient_or_unknown"
+      end
+
+    %{
+      message: inspect(reason),
+      code: failure_code(reason),
+      category: category,
+      retryable: not non_retryable_reason?(reason)
+    }
+  end
+
+  defp failure_code(reason) when is_atom(reason), do: to_string(reason)
+
+  defp failure_code({code, _, _}) when is_atom(code), do: to_string(code)
+  defp failure_code({code, _}) when is_atom(code), do: to_string(code)
+  defp failure_code(_), do: "unknown"
 
   defp required_arg(args, key) do
     case Map.get(args, key) do

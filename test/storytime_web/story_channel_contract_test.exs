@@ -51,6 +51,28 @@ defmodule StorytimeWeb.StoryChannelContractTest do
     "deploy_failed" => ["error"]
   }
 
+  @channel_broadcast_payload_keys %{
+    "story_updated" => ["story"],
+    "character_added" => ["character"],
+    "character_updated" => ["character"],
+    "character_deleted" => ["id", "character"],
+    "page_added" => ["page"],
+    "page_updated" => ["page"],
+    "page_deleted" => ["id", "page"],
+    "pages_reordered" => ["pages"],
+    "dialogue_line_added" => ["line"],
+    "dialogue_line_updated" => ["line"],
+    "dialogue_line_deleted" => ["id", "line"],
+    "music_track_added" => ["track"],
+    "music_track_updated" => ["track"],
+    "music_track_deleted" => ["id", "track"],
+    "music_span_added" => ["span"],
+    "music_span_updated" => ["span"],
+    "music_span_deleted" => ["id", "span"],
+    "generation_started" => ["story_id", "job_type", "target_id", "job_id"],
+    "deploy_started" => ["story_id", "job_id"]
+  }
+
   test "FR-011 required client events are declared" do
     declared = StoryChannel.required_client_events() |> MapSet.new()
 
@@ -77,6 +99,30 @@ defmodule StorytimeWeb.StoryChannelContractTest do
         assert key in declared_keys,
                "missing required payload key #{key} for broadcast event #{event}"
       end
+    end
+  end
+
+  test "channel broadcast payload contract is declared for all channel-emitted events" do
+    declared = StoryChannel.channel_broadcast_payload_keys()
+
+    for {event, required_keys} <- @channel_broadcast_payload_keys do
+      declared_keys = Map.get(declared, event, [])
+
+      for key <- required_keys do
+        assert key in declared_keys,
+               "missing channel payload key #{key} for broadcast event #{event}"
+      end
+    end
+  end
+
+  test "declared payload key lists do not contain duplicates" do
+    contracts =
+      StoryChannel.required_broadcast_payload_keys()
+      |> Map.merge(StoryChannel.channel_broadcast_payload_keys())
+
+    for {event, keys} <- contracts do
+      assert Enum.uniq(keys) == keys,
+             "duplicate payload keys declared for event #{event}"
     end
   end
 

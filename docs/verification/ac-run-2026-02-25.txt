@@ -1,0 +1,9 @@
+PASS  AC-014 /health returns 200
+PASS  Version endpoint returns commit metadata
+PASS  Voices endpoint rejects unsupported provider with 400
+PASS  AC-009 StoryPack endpoint returns schemaVersion 1
+PASS  AC-009 StoryPack includes pages array
+PASS  AC-015 Editor deep link rewrites to index
+PASS  AC-015 Reader deep link rewrites to index
+
+Verification summary: pass=7 fail=0 skip=0

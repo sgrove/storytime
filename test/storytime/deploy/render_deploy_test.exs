@@ -27,6 +27,8 @@ defmodule Storytime.Deploy.RenderDeployTest do
   describe "classify_deploy_status/1" do
     test "classifies live status" do
       assert :live = RenderDeploy.classify_deploy_status("live")
+      assert :live = RenderDeploy.classify_deploy_status("deployed")
+      assert :live = RenderDeploy.classify_deploy_status("succeeded")
     end
 
     test "classifies known terminal failures" do
@@ -36,6 +38,11 @@ defmodule Storytime.Deploy.RenderDeployTest do
       assert :failed = RenderDeploy.classify_deploy_status("canceled")
       assert :failed = RenderDeploy.classify_deploy_status("cancelled")
       assert :failed = RenderDeploy.classify_deploy_status("deactivated")
+      assert :failed = RenderDeploy.classify_deploy_status("pre_deploy_failed")
+      assert :failed = RenderDeploy.classify_deploy_status("timed_out")
+      assert :failed = RenderDeploy.classify_deploy_status("timeout")
+      assert :failed = RenderDeploy.classify_deploy_status("build_timed_out")
+      assert :failed = RenderDeploy.classify_deploy_status("deploy_failed")
     end
 
     test "classifies non-terminal statuses as pending" do

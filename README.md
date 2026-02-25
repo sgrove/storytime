@@ -8,13 +8,15 @@ Current live milestone includes:
 - `GET /` HTML landing
 - `GET /health`
 - `GET /api/version`
-- `GET /api/stories/:id/pack` (StoryPack scaffold)
+- `GET /api/stories/:id/pack` (assembled StoryPack JSON)
 - Phoenix socket endpoint at `/socket`
-- `story:{id}` channel with join + CRUD stub events
+- `story:{id}` channel with persisted CRUD + generation/deploy events
 - Managed Postgres provisioned and wired (`DATABASE_URL`)
-- Editor and reader static placeholder services
-
-Next milestones fill persistence-backed channel handlers, generation workers, full StoryPack assembly, reader runtime, and per-story deploy worker.
+- Oban workers for image/dialogue/TTS/music/deploy pipelines
+- Deploy lifecycle hardening with structured failure diagnostics
+- Generation guardrails (target/text/voice validation + capped jobs/request)
+- Editor voice preview + strict voice selection UX
+- Reader playback/collaboration runtime with host follow + stale peer cleanup
 
 ## GitHub -> Render CD
 

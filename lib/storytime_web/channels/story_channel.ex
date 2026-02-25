@@ -55,9 +55,32 @@ defmodule StorytimeWeb.StoryChannel do
     "deploy_failed" => ["error"]
   }
 
+  @channel_broadcast_payload_keys %{
+    "story_updated" => ["story"],
+    "character_added" => ["character"],
+    "character_updated" => ["character"],
+    "character_deleted" => ["id", "character"],
+    "page_added" => ["page"],
+    "page_updated" => ["page"],
+    "page_deleted" => ["id", "page"],
+    "pages_reordered" => ["pages"],
+    "dialogue_line_added" => ["line"],
+    "dialogue_line_updated" => ["line"],
+    "dialogue_line_deleted" => ["id", "line"],
+    "music_track_added" => ["track"],
+    "music_track_updated" => ["track"],
+    "music_track_deleted" => ["id", "track"],
+    "music_span_added" => ["span"],
+    "music_span_updated" => ["span"],
+    "music_span_deleted" => ["id", "span"],
+    "generation_started" => ["story_id", "job_type", "target_id", "job_id"],
+    "deploy_started" => ["story_id", "job_id"]
+  }
+
   def required_client_events, do: @required_client_events
   def required_broadcast_events, do: @required_broadcast_events
   def required_broadcast_payload_keys, do: @required_broadcast_payload_keys
+  def channel_broadcast_payload_keys, do: @channel_broadcast_payload_keys
 
   @impl true
   def join("story:" <> story_id, _payload, socket) do

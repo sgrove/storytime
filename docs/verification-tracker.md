@@ -42,8 +42,11 @@
 - [x] GitHub Actions CD now runs compile/test/dialyzer guards, validates `render.yaml` via Render CLI, and triggers/polls API/editor/reader deploys on pushes to `main`.
 - [x] Reader identity is now session-stable (ephemeral, no login) and host page sync broadcasts are host-only.
 - [x] Reader now exposes explicit playback status and prunes stale collaboration peers after inactivity.
+- [x] StoryChannel now declares a complete channel-side broadcast payload contract (CRUD/dialogue/music/page reorder/generation/deploy-start) and contract tests guard key parity + duplicate key declarations.
+- [x] Generation enqueue now validates single-target requests before queueing (target existence, narration/dialogue text presence, dialogue character voice assignment) and enforces a max jobs-per-request cap.
+- [x] Deploy worker now discards non-retryable validation/configuration failures and includes structured failure diagnostics (`error_code`, `error_category`, `retryable`) in `deploy_failed` broadcasts.
+- [x] Reader collaboration now tears down pointer listeners cleanly, elects a deterministic host when none is active, scopes cursors to current page, and shows collaborator freshness in UI.
+- [x] Scripted AC rehearsal run recorded at `docs/verification/ac-run-2026-02-25.txt` (current run: pass=7 fail=0 skip=0).
 
 ## In progress
-- [ ] Full event payload parity across every FR-012 broadcast shape.
 - [ ] End-to-end multi-device verification for InstantDB collaboration behavior.
-- [ ] Formal AC-001..AC-015 scripted verification run and recorded artifacts (`scripts/verify_ac.sh` scaffold added).

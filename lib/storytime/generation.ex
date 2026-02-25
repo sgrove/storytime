@@ -14,10 +14,13 @@ defmodule Storytime.Generation do
   }
 
   @subdomain_regex ~r/^[a-z0-9](?:[a-z0-9-]{1,40}[a-z0-9])?$/
+  @max_jobs_per_request_default 25
 
   @spec enqueue(String.t(), atom(), String.t() | nil, map()) :: {:ok, map()} | {:error, term()}
   def enqueue(story_id, generation_type, target_id, payload \\ %{}) do
     with {:ok, jobs} <- jobs_for_request(story_id, generation_type, target_id),
+         :ok <- validate_job_count(jobs),
+         :ok <- validate_jobs(story_id, generation_type, jobs),
          {:ok, first_job} <- persist_and_enqueue(story_id, jobs, payload) do
       _ = Stories.set_story_status(story_id, :generating)
       {:ok, first_job}
@@ -148,6 +151,91 @@ defmodule Storytime.Generation do
   defp wrap_jobs([]), do: {:error, :nothing_to_generate}
   defp wrap_jobs(jobs), do: {:ok, jobs}
 
+  @doc false
+  def max_jobs_per_request do
+    case Integer.parse(System.get_env("GENERATION_MAX_JOBS_PER_REQUEST") || "") do
+      {value, ""} when value > 0 -> value
+      _ -> @max_jobs_per_request_default
+    end
+  end
+
+  @doc false
+  def validate_job_count(jobs, limit \\ max_jobs_per_request()) when is_list(jobs) do
+    if length(jobs) > limit do
+      {:error, :too_many_jobs_requested}
+    else
+      :ok
+    end
+  end
+
+  defp validate_jobs(_story_id, generation_type, _jobs)
+       when generation_type in [:all_scenes, :all_audio, :all_dialogue, :all],
+       do: :ok
+
+  defp validate_jobs(story_id, _generation_type, [{job_type, target_id}]) do
+    case Stories.load_story_graph(story_id) do
+      nil -> {:error, :not_found}
+      story -> validate_single_job(story, job_type, target_id)
+    end
+  end
+
+  defp validate_jobs(_story_id, _generation_type, _jobs), do: :ok
+
+  @doc false
+  def validate_single_job(story, :headshot, target_id) do
+    if Enum.any?(story.characters || [], &(&1.id == target_id)) do
+      :ok
+    else
+      {:error, :invalid_target}
+    end
+  end
+
+  def validate_single_job(story, :scene, target_id) do
+    if Enum.any?(story.pages || [], &(&1.id == target_id)) do
+      :ok
+    else
+      {:error, :invalid_target}
+    end
+  end
+
+  def validate_single_job(story, :dialogue, target_id) do
+    if Enum.any?(story.pages || [], &(&1.id == target_id)) do
+      :ok
+    else
+      {:error, :invalid_target}
+    end
+  end
+
+  def validate_single_job(story, :music, target_id) do
+    if Enum.any?(story.music_tracks || [], &(&1.id == target_id)) do
+      :ok
+    else
+      {:error, :invalid_target}
+    end
+  end
+
+  def validate_single_job(story, :dialogue_tts, target_id) do
+    with {:ok, line} <- find_dialogue_line(story, target_id),
+         true <- text_present?(line.text) or {:error, :empty_text},
+         {:ok, character} <- find_character(story, line.character_id),
+         true <- not blank?(character.voice_id) or {:error, :missing_character_voice_id} do
+      :ok
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def validate_single_job(story, :narration_tts, target_id) do
+    with {:ok, page} <- find_page(story, target_id),
+         true <- text_present?(page.narration_text) or {:error, :empty_text} do
+      :ok
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def validate_single_job(_story, _job_type, _target_id), do: :ok
+
   defp persist_and_enqueue(story_id, jobs, payload) do
     jobs
     |> Enum.map(fn {job_type, target_id} ->
@@ -267,6 +355,30 @@ defmodule Storytime.Generation do
 
   defp text_present?(value) when is_binary(value), do: String.trim(value) != ""
   defp text_present?(_value), do: false
+
+  defp find_page(story, page_id) do
+    case Enum.find(story.pages || [], &(&1.id == page_id)) do
+      nil -> {:error, :invalid_target}
+      page -> {:ok, page}
+    end
+  end
+
+  defp find_character(story, character_id) do
+    case Enum.find(story.characters || [], &(&1.id == character_id)) do
+      nil -> {:error, :invalid_target}
+      character -> {:ok, character}
+    end
+  end
+
+  defp find_dialogue_line(story, line_id) do
+    line =
+      story.pages
+      |> List.wrap()
+      |> Enum.flat_map(&List.wrap(&1.dialogue_lines))
+      |> Enum.find(&(&1.id == line_id))
+
+    if line, do: {:ok, line}, else: {:error, :invalid_target}
+  end
 
   defp has_voiced_characters?(story) do
     Enum.any?(story.characters || [], fn character -> not blank?(character.voice_id) end)

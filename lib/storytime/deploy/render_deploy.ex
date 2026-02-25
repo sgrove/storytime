@@ -104,6 +104,7 @@ defmodule Storytime.Deploy.RenderDeploy do
       {:ok, %{status: 201, body: %{"service" => service} = body}} ->
         deploy_id = body["deployId"]
         service_id = service["id"]
+
         with {:ok, _} <- maybe_wait_for_deploy(api_key, service_id, deploy_id) do
           {:ok,
            %{
@@ -134,7 +135,8 @@ defmodule Storytime.Deploy.RenderDeploy do
          service_id: service_id,
          deploy_id: deploy_id,
          slug: service["slug"],
-         url: get_in(service, ["serviceDetails", "url"]) || "https://#{service["slug"]}.onrender.com"
+         url:
+           get_in(service, ["serviceDetails", "url"]) || "https://#{service["slug"]}.onrender.com"
        }}
     end
   end
@@ -142,14 +144,18 @@ defmodule Storytime.Deploy.RenderDeploy do
   defp patch_service_details(api_key, service_id, payload) do
     patch = %{
       "serviceDetails" => %{
-        "buildCommand" => get_in(payload, ["serviceDetails", "buildCommand"]) || runtime_config_build_command(),
+        "buildCommand" =>
+          get_in(payload, ["serviceDetails", "buildCommand"]) || runtime_config_build_command(),
         "publishPath" => get_in(payload, ["serviceDetails", "publishPath"]),
         "routes" => get_in(payload, ["serviceDetails", "routes"]),
         "pullRequestPreviewsEnabled" => "no"
       }
     }
 
-    case Req.patch("#{@api_base}/services/#{service_id}", headers: auth_headers(api_key), json: patch) do
+    case Req.patch("#{@api_base}/services/#{service_id}",
+           headers: auth_headers(api_key),
+           json: patch
+         ) do
       {:ok, %{status: 200}} -> :ok
       {:ok, %{status: status, body: body}} -> {:error, {:render_patch_failed, status, body}}
       {:error, reason} -> {:error, reason}
@@ -198,7 +204,9 @@ defmodule Storytime.Deploy.RenderDeploy do
   defp wait_for_deploy(_api_key, _service_id, _deploy_id, 0), do: {:error, :deploy_timeout}
 
   defp wait_for_deploy(api_key, service_id, deploy_id, attempts_left) do
-    case Req.get("#{@api_base}/services/#{service_id}/deploys/#{deploy_id}", headers: auth_headers(api_key)) do
+    case Req.get("#{@api_base}/services/#{service_id}/deploys/#{deploy_id}",
+           headers: auth_headers(api_key)
+         ) do
       {:ok, %{status: 200, body: body}} ->
         with {:ok, deploy} <- unwrap_deploy(body) do
           case classify_deploy_status(Map.get(deploy, "status")) do
@@ -220,8 +228,11 @@ defmodule Storytime.Deploy.RenderDeploy do
             {:error, {:deploy_status_invalid_shape, body}}
         end
 
-      {:ok, %{status: status, body: body}} -> {:error, {:deploy_status_failed, status, body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:deploy_status_failed, status, body}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -234,9 +245,23 @@ defmodule Storytime.Deploy.RenderDeploy do
   @doc false
   @spec classify_deploy_status(term()) :: :live | :failed | :pending | :invalid
   def classify_deploy_status("live"), do: :live
+  def classify_deploy_status("deployed"), do: :live
+  def classify_deploy_status("succeeded"), do: :live
 
   def classify_deploy_status(status)
-      when status in ["build_failed", "failed", "update_failed", "canceled", "cancelled", "deactivated"] do
+      when status in [
+             "build_failed",
+             "failed",
+             "update_failed",
+             "canceled",
+             "cancelled",
+             "deactivated",
+             "pre_deploy_failed",
+             "timed_out",
+             "timeout",
+             "build_timed_out",
+             "deploy_failed"
+           ] do
     :failed
   end
 

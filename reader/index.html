@@ -230,6 +230,16 @@
         .reader { grid-template-columns: 1fr; }
         .sidebar { border-left: none; border-top: 1px solid rgba(221, 232, 255, 0.2); }
       }
+
+      @media (max-width: 640px) {
+        .scene-wrap { padding: 10px; }
+        .caption { margin: 0 10px 12px; padding: 10px 12px; }
+        .sidebar { padding: 10px; gap: 10px; }
+        .card { padding: 10px; }
+        .btn { padding: 10px 12px; font-size: 14px; }
+        .small-btn { padding: 6px 9px; font-size: 12px; }
+        .narration { font-size: clamp(16px, 4.8vw, 20px); }
+      }
     </style>
   </head>
   <body>
@@ -326,6 +336,7 @@
           isHost: true,
           followHost: true,
           heartbeat: null,
+          pointerMoveHandler: null,
           teardown: []
         }
       };
@@ -899,6 +910,11 @@
           try { stop(); } catch (_err) {}
         }
 
+        if (state.collab.pointerMoveHandler) {
+          $("stage").removeEventListener("pointermove", state.collab.pointerMoveHandler);
+          state.collab.pointerMoveHandler = null;
+        }
+
         state.collab.teardown = [];
         state.collab.room = null;
         state.collab.db = null;
@@ -915,7 +931,7 @@
           sendPresence();
         }, 1800);
 
-        $("stage").addEventListener("pointermove", (ev) => {
+        state.collab.pointerMoveHandler = (ev) => {
           const now = Date.now();
           if (now - state.lastPointerAt < 80) return;
           state.lastPointerAt = now;
@@ -926,6 +942,14 @@
             y: (ev.clientY - rect.top) / rect.height
           };
           sendPresence(cursor);
+        };
+
+        $("stage").addEventListener("pointermove", state.collab.pointerMoveHandler, { passive: true });
+        state.collab.teardown.push(() => {
+          if (state.collab.pointerMoveHandler) {
+            $("stage").removeEventListener("pointermove", state.collab.pointerMoveHandler);
+            state.collab.pointerMoveHandler = null;
+          }
         });
 
         sendPresence();
@@ -1040,13 +1064,39 @@
 
       function maybeFollowHost() {
         if (!state.collab.followHost || state.collab.isHost) return;
-        const host = [...state.participants.values()].find((p) => p.host);
-        if (!host) return;
+        const host = activeHostParticipant();
+
+        if (!host) {
+          if (shouldSelfElectHost()) {
+            state.collab.isHost = true;
+            sendPresence();
+            sendPageSync();
+            renderCollab();
+          }
+          return;
+        }
+
         const nextIndex = clampPageIndex(host.pageIndex);
         if (nextIndex !== state.pageIndex) {
           state.pageIndex = nextIndex;
           renderPage();
         }
+      }
+
+      function activeHostParticipant() {
+        const hosts = [...state.participants.values()]
+          .filter((participant) => participant.host)
+          .sort((a, b) => (b.seenAt || 0) - (a.seenAt || 0));
+
+        return hosts[0] || null;
+      }
+
+      function shouldSelfElectHost() {
+        const peers = [...state.participants.values()].filter((peer) => Date.now() - (peer.seenAt || 0) <= 15_000);
+        if (!peers.length) return true;
+
+        const candidates = [state.identity.id, ...peers.map((peer) => peer.id)].sort();
+        return candidates[0] === state.identity.id;
       }
 
       function sendPageSync() {
@@ -1070,7 +1120,9 @@
 
       function renderCursors() {
         const layer = $("cursorLayer");
-        const peers = [...state.participants.values()].filter((p) => p.cursor);
+        const peers = [...state.participants.values()].filter(
+          (p) => p.cursor && clampPageIndex(p.pageIndex) === state.pageIndex
+        );
         layer.innerHTML = peers.map((p) => `
           <div class="cursor" style="left:${(p.cursor.x || 0) * 100}%;top:${(p.cursor.y || 0) * 100}%;">
             ${esc(p.name)}
@@ -1084,12 +1136,22 @@
           if (now - (peer.seenAt || 0) > 15_000) state.participants.delete(id);
         }
 
+        maybeFollowHost();
+
         const peers = [...state.participants.values()];
+        const host = activeHostParticipant();
+        const freshnessLabel = (participant) => {
+          const delta = Math.max(0, Math.floor((now - (participant.seenAt || now)) / 1000));
+          return delta <= 2 ? "active now" : `${delta}s ago`;
+        };
+
         $("collabStatus").textContent =
-          `You: ${state.identity.name} | role: ${state.collab.isHost ? "host" : "guest"} | follow host: ${state.collab.followHost ? "on" : "off"} | backend: ${state.collab.backend}`;
+          `You: ${state.identity.name} | role: ${state.collab.isHost ? "host" : "guest"} | follow host: ${state.collab.followHost ? "on" : "off"} | active host: ${host ? host.name : (state.collab.isHost ? state.identity.name : "none")} | backend: ${state.collab.backend}`;
 
         $("presenceList").innerHTML = peers.length
-          ? peers.map((p) => `<div class="presence">${esc(p.name)} • page ${p.pageIndex + 1} ${p.host ? "• host" : ""}</div>`).join("")
+          ? peers
+              .map((p) => `<div class="presence">${esc(p.name)} • page ${p.pageIndex + 1}${p.host ? " • host" : ""} • ${freshnessLabel(p)}</div>`)
+              .join("")
           : '<div class="status">No collaborators yet.</div>';
       }
 
