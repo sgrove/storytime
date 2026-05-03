@@ -17,6 +17,7 @@ Current live milestone includes:
 - Generation guardrails (target/text/voice validation + capped jobs/request)
 - Editor voice preview + strict voice selection UX
 - Reader playback/collaboration runtime with host follow + stale peer cleanup
+- Hello-world smoke path for lightweight review branches
 
 ## Reader StoryPack Source Modes
 
